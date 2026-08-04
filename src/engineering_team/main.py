@@ -5,6 +5,8 @@ from datetime import datetime
 
 import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch on import
 from engineering_team.crew import EngineeringTeam
+from engineering_team.model_config import active_profile_name, profile
+from engineering_team.observability.recorder import CostListener, RunRecorder
 from .tools.sandbox_tools import reset_sandbox
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
@@ -35,11 +37,26 @@ def run():
         'requirements': requirements,
     }
 
+    profile_name = active_profile_name()
+    print(f"\nModel profile: {profile_name}")
+    for role, model in sorted(profile().items()):
+        print(f"  {role:20} {model}")
+
+    recorder = RunRecorder()
+    CostListener(recorder)
+
     try:
         reset_sandbox()
         EngineeringTeam().crew().kickoff(inputs=inputs)
     except Exception as e:
+        # Report what was already spent; a crash should not hide the cost.
+        recorder.settle()
+        print(recorder.summary())
         raise Exception(f"An error occurred while running the crew: {e}")
+
+    # Event handlers run on a thread pool, so let in-flight events land before totalling.
+    recorder.settle()
+    print(recorder.summary())
 
 
 def train():
