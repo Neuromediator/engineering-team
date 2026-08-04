@@ -39,17 +39,54 @@ class CheckResult:
         return line
 
 
-WSL_REMEDY = (
+WSL_INTEGRATION_OFF = (
     "Docker Desktop > Settings > Resources > WSL Integration > enable this distro, "
     "then Apply & Restart. A Windows docker.exe on PATH cannot bind-mount Linux paths."
 )
+
+WSL_STALE_SESSION = (
+    "Docker Desktop is running and integration IS enabled for this distro, but this "
+    "shell's mount namespace predates it, so the injected binary and socket are stale. "
+    "Run `wsl --shutdown` in Windows PowerShell, then open a new terminal. "
+    "(Toggling the integration setting will not fix an already-running session.)"
+)
+
+
+def _wsl_docker_diagnosis() -> str:
+    """Distinguish 'integration never enabled' from 'this session missed the injection'.
+
+    Docker Desktop injects its CLI and socket into running distros as bind mounts. A
+    shell started before Docker Desktop keeps a namespace without them — and may hold
+    mounts marked `//deleted` from an earlier Desktop lifetime. That is not a settings
+    problem and toggling the setting does not repair it.
+    """
+    if not Path("/mnt/wsl/docker-desktop").exists():
+        return WSL_INTEGRATION_OFF
+
+    distro = os.environ.get("WSL_DISTRO_NAME", "")
+    injected = Path("/mnt/wsl/docker-desktop-bind-mounts") / distro
+    stale_mount = False
+    try:
+        stale_mount = "//deleted" in Path("/proc/self/mountinfo").read_text(
+            encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+    if injected.exists() or stale_mount:
+        return WSL_STALE_SESSION
+    return WSL_INTEGRATION_OFF
+
+
+# Kept for callers that want the generic message without diagnosis.
+WSL_REMEDY = WSL_INTEGRATION_OFF
 
 
 def check_docker(timeout: int = 120) -> CheckResult:
     """Verify a container can run and actually see a bind-mounted host directory."""
     binary = shutil.which("docker")
     if binary is None:
-        return CheckResult("docker", False, "no docker on PATH", WSL_REMEDY)
+        return CheckResult("docker", False, "no Linux docker on PATH", _wsl_docker_diagnosis())
 
     # Under WSL, a Windows binary starts containers but silently mounts nothing.
     if binary.startswith("/mnt/"):
@@ -57,7 +94,7 @@ def check_docker(timeout: int = 120) -> CheckResult:
             "docker",
             False,
             f"PATH resolves to a Windows binary ({binary}); bind mounts will be empty",
-            WSL_REMEDY,
+            _wsl_docker_diagnosis(),
         )
 
     try:
@@ -65,12 +102,12 @@ def check_docker(timeout: int = 120) -> CheckResult:
             [binary, "info"], capture_output=True, text=True, timeout=timeout
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
-        return CheckResult("docker", False, f"docker info failed: {exc}", WSL_REMEDY)
+        return CheckResult("docker", False, f"docker info failed: {exc}", _wsl_docker_diagnosis())
 
     if info.returncode != 0:
         detail = (info.stderr or info.stdout).strip().splitlines()
         return CheckResult(
-            "docker", False, detail[0] if detail else "daemon unreachable", WSL_REMEDY
+            "docker", False, detail[0] if detail else "daemon unreachable", _wsl_docker_diagnosis()
         )
 
     # The check that matters: does the container see what we mounted?
@@ -90,14 +127,14 @@ def check_docker(timeout: int = 120) -> CheckResult:
                 timeout=timeout,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
-            return CheckResult("docker", False, f"container run failed: {exc}", WSL_REMEDY)
+            return CheckResult("docker", False, f"container run failed: {exc}", _wsl_docker_diagnosis())
 
     if run.returncode != 0 or run.stdout.strip() != "ok":
         return CheckResult(
             "docker",
             False,
             "container ran but the bind mount was empty — host files are invisible to it",
-            WSL_REMEDY,
+            _wsl_docker_diagnosis(),
         )
 
     return CheckResult("docker", True, f"{binary}, bind mounts working")

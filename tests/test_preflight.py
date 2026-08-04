@@ -31,7 +31,7 @@ class DockerCheckTest(unittest.TestCase):
         with mock.patch("shutil.which", return_value=None):
             result = preflight.check_docker()
         self.assertFalse(result.ok)
-        self.assertIn("no docker on PATH", result.detail)
+        self.assertIn("docker on PATH", result.detail)
 
     def test_windows_binary_under_wsl_is_rejected(self):
         """The regression this module exists for: docker.exe runs but mounts nothing."""
@@ -41,7 +41,11 @@ class DockerCheckTest(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("Windows binary", result.detail)
-        self.assertIn("WSL Integration", result.remedy)
+        # The remedy is diagnosed at runtime; it must be one of the two real causes.
+        self.assertIn(
+            result.remedy,
+            {preflight.WSL_INTEGRATION_OFF, preflight.WSL_STALE_SESSION},
+        )
 
     def test_windows_binary_rejected_without_invoking_it(self):
         """Rejection must be by path, before any subprocess call."""
@@ -138,6 +142,36 @@ class AssertReadyTest(unittest.TestCase):
         with mock.patch.object(preflight, "check_docker") as check:
             preflight.run_all(require_docker=False)
         check.assert_not_called()
+
+
+class WslDiagnosisTest(unittest.TestCase):
+    """Distinguishing these two cases matters: only one is fixed by a settings toggle."""
+
+    def test_no_docker_desktop_means_integration_is_off(self):
+        with mock.patch.object(preflight.Path, "exists", return_value=False):
+            self.assertEqual(preflight._wsl_docker_diagnosis(), preflight.WSL_INTEGRATION_OFF)
+
+    def test_injected_bind_mount_dir_means_stale_session(self):
+        """Integration is enabled; this shell simply started before Docker Desktop."""
+        with (
+            mock.patch.object(preflight.Path, "exists", return_value=True),
+            mock.patch.dict("os.environ", {"WSL_DISTRO_NAME": "Ubuntu-24.04"}),
+        ):
+            self.assertEqual(preflight._wsl_docker_diagnosis(), preflight.WSL_STALE_SESSION)
+
+    def test_deleted_mount_marker_means_stale_session(self):
+        mountinfo = "396 76 0:61 /docker.sock//deleted /mnt/wsl/... rw - tmpfs none rw"
+        with (
+            mock.patch.object(preflight.Path, "exists", side_effect=[True, False]),
+            mock.patch.object(preflight.Path, "read_text", return_value=mountinfo),
+            mock.patch.dict("os.environ", {"WSL_DISTRO_NAME": "Ubuntu-24.04"}),
+        ):
+            self.assertEqual(preflight._wsl_docker_diagnosis(), preflight.WSL_STALE_SESSION)
+
+    def test_stale_remedy_does_not_advise_toggling(self):
+        """The toggle advice was wrong and wasted a paid run; keep it out of this path."""
+        self.assertIn("wsl --shutdown", preflight.WSL_STALE_SESSION)
+        self.assertIn("will not fix", preflight.WSL_STALE_SESSION)
 
 
 if __name__ == "__main__":
