@@ -1,0 +1,67 @@
+# Single source of truth for model assignment AND pricing.
+#
+# The observability cost panel reads `pricing` from this same file, so the models the
+# crew actually calls and the prices used to cost them cannot drift apart.
+#
+# Select a profile with the MODEL_PROFILE env var (default: `default_profile` below).
+#
+# Prices are USD per million tokens, every entry verified against
+# https://openrouter.ai/api/v1/models on 2026-08-04. Re-verify with:
+#   uv run python -m engineering_team.model_config --check
+#
+# Everything routes through OpenRouter so a single OPENROUTER_API_KEY runs any profile.
+
+default_profile: budget
+
+profiles:
+  # Target profile. The manager keeps a capable model because weak managers delegate
+  # badly, which costs more than it saves; the workers do not need one.
+  budget:
+    engineering_lead: openrouter/z-ai/glm-5.2
+    backend_engineer: openrouter/deepseek/deepseek-v4-flash-0731
+    frontend_engineer: openrouter/moonshotai/kimi-k2.6
+    test_engineer: openrouter/deepseek/deepseek-v4-flash-0731
+
+  # Cheapest coherent configuration. The manager drops to a small model, which is the
+  # risky part. Useful for iterating on plumbing, not for judging output quality.
+  minimal:
+    engineering_lead: openrouter/deepseek/deepseek-v4-flash-0731
+    backend_engineer: openrouter/qwen/qwen3.5-flash-02-23
+    frontend_engineer: openrouter/deepseek/deepseek-v4-flash-0731
+    test_engineer: openrouter/qwen/qwen3.5-flash-02-23
+
+  # The original course configuration, kept so cost and quality can be measured against
+  # the baseline rather than asserted. ~$4 per run. Re-pointed at OpenRouter so it runs
+  # without a separate OpenAI key.
+  premium:
+    engineering_lead: openrouter/openai/gpt-5.5
+    backend_engineer: openrouter/google/gemini-3.1-pro-preview
+    frontend_engineer: openrouter/anthropic/claude-opus-4.7
+    test_engineer: openrouter/openai/gpt-5.4-mini
+
+# USD per million tokens.
+pricing:
+  openrouter/z-ai/glm-5.2:
+    input: 0.76
+    output: 2.42
+  openrouter/deepseek/deepseek-v4-flash-0731:
+    input: 0.09
+    output: 0.18
+  openrouter/moonshotai/kimi-k2.6:
+    input: 0.589
+    output: 2.48
+  openrouter/qwen/qwen3.5-flash-02-23:
+    input: 0.065
+    output: 0.26
+  openrouter/openai/gpt-5.5:
+    input: 5.00
+    output: 30.00
+  openrouter/openai/gpt-5.4-mini:
+    input: 0.75
+    output: 4.50
+  openrouter/google/gemini-3.1-pro-preview:
+    input: 2.00
+    output: 12.00
+  openrouter/anthropic/claude-opus-4.7:
+    input: 5.00
+    output: 25.00

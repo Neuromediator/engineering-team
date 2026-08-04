@@ -1,6 +1,7 @@
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
+from .model_config import llm_for
 from .tools.sandbox_tools import sandbox_tools
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
@@ -20,11 +21,16 @@ class EngineeringTeam():
     # If you would like to add tools to your agents, you can learn more about it here:
     # https://docs.crewai.com/concepts/agents#agent-tools
 
+    # Models come from config/models.yaml, not from agents.yaml, so that the cost
+    # panel and the LLM assignment always read the same source. Switch with
+    # MODEL_PROFILE=budget|minimal|premium.
+
     @agent
     def engineering_lead(self) -> Agent:
         return Agent(
             config=self.agents_config['engineering_lead'],
             verbose=True,
+            llm=llm_for('engineering_lead'),
             mcps=["https://mcp.context7.com/mcp"]
         )
 
@@ -33,23 +39,26 @@ class EngineeringTeam():
         return Agent(
             config=self.agents_config['backend_engineer'],
             verbose=True,
+            llm=llm_for('backend_engineer'),
             tools=sandbox_tools
         )
-    
+
     @agent
     def frontend_engineer(self) -> Agent:
         return Agent(
             config=self.agents_config['frontend_engineer'],
             verbose=True,
+            llm=llm_for('frontend_engineer'),
             tools=sandbox_tools,
             mcps=["https://mcp.context7.com/mcp"],
         )
-    
+
     @agent
     def test_engineer(self) -> Agent:
         return Agent(
             config=self.agents_config['test_engineer'],
             verbose=True,
+            llm=llm_for('test_engineer'),
             tools=sandbox_tools
         )
 
