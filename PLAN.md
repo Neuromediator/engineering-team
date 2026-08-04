@@ -51,11 +51,28 @@ circular delegation.
 `config/models.yaml` holds role→model mapping *and* per-model pricing, so the cost panel and the
 LLM assignment cannot drift apart.
 
+Current `budget` profile, every price verified against OpenRouter's live catalogue:
+
 | Role | Model | $/M in | $/M out |
 |---|---|---|---|
-| Engineering Lead (manager) | `openrouter/z-ai/glm-5` | 0.60 | 1.92 |
-| Backend / Test / QA | `openrouter/deepseek/deepseek-v4-flash` | 0.09 | 0.18 |
-| Frontend | `openrouter/moonshotai/kimi-k2.5` | 0.57 | 2.85 |
+| Engineering Lead (manager) | `openrouter/z-ai/glm-5.2` | 0.76 | 2.42 |
+| Backend / Test | `openrouter/deepseek/deepseek-v4-flash-0731` | 0.09 | 0.18 |
+| Frontend | `openrouter/moonshotai/kimi-k2.6` | 0.589 | 2.48 |
+
+These differ from the models first proposed, because the originals came from secondary
+sources that were wrong. Querying `https://openrouter.ai/api/v1/models` directly showed:
+
+- `deepseek-v4-flash` is **$0.14/$0.28**; the $0.09/$0.18 rate belongs to the dated
+  `-0731` snapshot. Pinning it is 55% cheaper *and* reproducible for benchmarking.
+- `glm-5` is **$0.95/$2.55**, not $0.60/$1.92. `glm-5.2` is cheaper, newer and has 1M
+  context, so it wins on every axis.
+- `gpt-5.4-mini` is **$0.75/$4.50**, not $0.25/$2.00.
+- `kimi-k2.6` supersedes k2.5 ($0.589/$2.48 vs $0.57/$2.85); output dominates for code
+  generation.
+
+Lesson worth keeping: price claims from blogs and search results were wrong for three of
+four models. `python -m engineering_team.model_config --check` re-verifies every committed
+price against the live catalogue.
 
 ### Stack decisions
 
