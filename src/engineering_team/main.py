@@ -7,6 +7,7 @@ import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch 
 from engineering_team.crew import EngineeringTeam
 from engineering_team.model_config import active_profile_name, profile
 from engineering_team.observability.recorder import CostListener, RunRecorder
+from engineering_team.preflight import assert_ready
 from .tools.sandbox_tools import reset_sandbox
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
@@ -36,6 +37,10 @@ def run():
     inputs = {
         'requirements': requirements,
     }
+
+    # Fail before spending anything. A run whose sandbox cannot execute still costs
+    # full price while producing code nobody verified.
+    assert_ready()
 
     profile_name = active_profile_name()
     print(f"\nModel profile: {profile_name}")
