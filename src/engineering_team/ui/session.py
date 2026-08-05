@@ -76,7 +76,7 @@ class RunSession:
 
     # -- driving the flow ---------------------------------------------------------
 
-    def start(self, requirements: str) -> None:
+    def start(self, requirements: str, process: str = "") -> None:
         """Kick off a build. Does nothing if one is already in flight."""
         if self.is_busy:
             return
@@ -93,9 +93,13 @@ class RunSession:
         # Lets the flow's router stop before paying for another iteration.
         flow._cost_probe = self.recorder.total_cost
         self._set(flow=flow, status="running", error="", question="", flow_id="")
-        self.log.add("run", "flow", "starting")
+        self.log.add("run", "flow", f"starting ({process or 'default'} process)")
 
-        self._spawn(lambda: flow.kickoff(inputs={"requirements": requirements}))
+        self._spawn(
+            lambda: flow.kickoff(
+                inputs={"requirements": requirements, "process": process}
+            )
+        )
 
     def submit_feedback(self, feedback: str) -> None:
         """Resume a paused flow with the human's answer."""

@@ -17,6 +17,7 @@ import gradio as gr
 
 from engineering_team import budget
 from engineering_team.capabilities import CAPABILITIES_MD
+from engineering_team.crew import VALID_PROCESSES, process_name
 from engineering_team.model_config import models, price_for
 from engineering_team.preflight import run_all
 from engineering_team.ui.session import RunSession
@@ -227,7 +228,8 @@ def _progress(snapshot: dict) -> str:
         return "_Not started._"
 
     lines = [
-        f"**Iteration {state.iteration} of {state.max_iterations}**",
+        f"**Iteration {state.iteration} of {state.max_iterations}** "
+        f"· {state.process or process_name()}",
         f"Sandbox: `sandbox/{state.run_id}`" if state.run_id else "",
         "",
     ]
@@ -294,7 +296,7 @@ def build_ui() -> gr.Blocks:
             f"_{budget.status_line()}_",
         )
 
-    def start(requirements: str):
+    def start(requirements: str, process: str):
         if not requirements.strip():
             gr.Warning("Describe what you want built first.")
             return refresh()
@@ -304,7 +306,7 @@ def build_ui() -> gr.Blocks:
             # still costs full price while producing code nobody verified.
             gr.Warning("Preflight failed: " + "; ".join(c.detail for c in failures))
             return refresh()
-        session.start(requirements)
+        session.start(requirements, process)
         return refresh()
 
     def send_feedback(feedback: str):
@@ -316,9 +318,10 @@ def build_ui() -> gr.Blocks:
         gr.HTML(
             "<div id='masthead'>"
             "<h1>Engineering Team</h1>"
-            "<p>A hierarchical CrewAI crew that designs, builds, tests and inspects a "
-            "product from plain-English requirements — with a bounded revision loop "
-            "and a human gate before it ships.</p>"
+            "<p>A CrewAI crew that designs, builds, tests and <em>independently "
+            "inspects</em> a Python product from plain-English requirements — with a "
+            "bounded revision loop and a human gate before it ships. The delegation "
+            "model is yours to choose below; the measured difference is the point.</p>"
             "</div>"
         )
 
@@ -333,6 +336,17 @@ def build_ui() -> gr.Blocks:
                     label="Requirements",
                     placeholder=PLACEHOLDER,
                     lines=12,
+                )
+                process_choice = gr.Radio(
+                    choices=list(VALID_PROCESSES),
+                    value=process_name(),
+                    label="Delegation model",
+                    info=(
+                        "sequential: a fixed pipeline, 37 LLM calls, ~$0.22. "
+                        "hierarchical: the Engineering Lead manages and delegates, "
+                        "102 calls, ~$0.52. Same product for a pipeline this "
+                        "predictable — which is the finding."
+                    ),
                 )
                 with gr.Row():
                     run_button = gr.Button("Build it", variant="primary", scale=2)
@@ -376,7 +390,9 @@ def build_ui() -> gr.Blocks:
             feedback_box, feedback_button, run_button, budget_box,
         ]
 
-        run_button.click(start, inputs=requirements, outputs=outputs)
+        run_button.click(
+            start, inputs=[requirements, process_choice], outputs=outputs
+        )
         feedback_button.click(send_feedback, inputs=feedback_box, outputs=outputs)
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
 

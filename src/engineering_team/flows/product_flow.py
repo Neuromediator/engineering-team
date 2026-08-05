@@ -62,6 +62,10 @@ class ProductState(BaseModel):
     # to the same directory instead of starting a fresh one and losing the build.
     run_id: str = ""
 
+    # "sequential" or "hierarchical". Empty means take the CREW_PROCESS default. Kept in
+    # state so a resumed run keeps the process it started with.
+    process: str = ""
+
     qa_report: QAReport | None = None
     history: list[IterationRecord] = Field(default_factory=list)
 
@@ -169,7 +173,9 @@ class ProductFlow(Flow[ProductState]):
         if self.state.iteration == 1:
             sandbox.reset()
 
-        result = EngineeringTeam(sandbox=sandbox).crew().kickoff(
+        result = EngineeringTeam(
+            sandbox=sandbox, process=self.state.process or None
+        ).crew().kickoff(
             inputs={
                 "requirements": self.state.requirements,
                 "revision_notes": self.state.notes_for_prompt(),
