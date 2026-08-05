@@ -49,21 +49,141 @@ POLL_SECONDS = 2.0
 
 STATUS_LABEL = {
     "idle": "Idle",
-    "running": "Running",
+    "running": "Building",
     "awaiting_feedback": "Waiting for your feedback",
     "finished": "Finished",
     "failed": "Failed",
 }
 
+# Maps a status to the pill's CSS modifier.
+STATUS_CLASS = {
+    "idle": "idle",
+    "running": "running",
+    "awaiting_feedback": "awaiting",
+    "finished": "finished",
+    "failed": "failed",
+}
+
+
+def _escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
+def _status_html(status: str, error: str) -> str:
+    """Render the status as a coloured pill, plus the traceback when one exists."""
+    label = STATUS_LABEL.get(status, status)
+    modifier = STATUS_CLASS.get(status, "idle")
+    html = f'<span class="pill {modifier}"><span class="dot"></span>{label}</span>'
+    if error:
+        # Escaped: this is a traceback, and it must never be able to inject markup.
+        html += f"<pre>{_escape(error[-2000:])}</pre>"
+    return html
+
+
+# The palette the frontend_engineer is told to use for the apps it builds
+# (config/agents.yaml). Reusing it here means the orchestrator wears the same colours it
+# asks its agents to wear.
+AMBER = "#ecad0a"
+BLUE = "#209dd7"
+PURPLE = "#753991"
+
+_BLUE_HUE = gr.themes.Color(
+    c50="#e8f6fd", c100="#c5e9f8", c200="#9ed9f3", c300="#72c8ee",
+    c400="#4bb8e9", c500=BLUE, c600="#1b86b8", c700="#166d95",
+    c800="#115572", c900="#0c3c50", c950="#07242f",
+)
+
+
+def _theme() -> gr.themes.Base:
+    """A restrained instrument-panel look: technical, dense, not decorated.
+
+    Built from theme tokens rather than CSS overrides wherever possible, so light and
+    dark mode both stay coherent without maintaining two stylesheets.
+    """
+    return gr.themes.Base(
+        primary_hue=_BLUE_HUE,
+        neutral_hue="slate",
+        font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+        font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "ui-monospace", "monospace"],
+        radius_size=gr.themes.sizes.radius_sm,
+        spacing_size=gr.themes.sizes.spacing_md,
+    ).set(
+        block_border_width="1px",
+        block_shadow="none",
+        block_label_text_weight="600",
+        button_primary_background_fill=f"linear-gradient(90deg, {BLUE}, {PURPLE})",
+        button_primary_background_fill_hover=f"linear-gradient(90deg, {PURPLE}, {BLUE})",
+        button_primary_text_color="#ffffff",
+        input_border_width="1px",
+    )
+
 
 # Gradio 6 moved `css` off the Blocks constructor onto launch(), same as `theme`.
-CSS = """
+# Everything here uses Gradio's own CSS variables so it follows light/dark automatically.
+CSS = f"""
 /* Long model slugs and role names were being broken mid-word in narrow columns
    ("backend_eng/ineer"), which is unreadable. Let wide content scroll instead. */
-.md table { table-layout: auto; }
-.md td, .md th { word-break: normal; overflow-wrap: normal; hyphens: none; }
-.md code { white-space: nowrap; font-size: 0.85em; }
-#activity_log, #cost_panel, #models_panel { overflow-x: auto; }
+.md table {{ table-layout: auto; border-collapse: collapse; width: 100%; }}
+.md td, .md th {{ word-break: normal; overflow-wrap: normal; hyphens: none; }}
+.md code {{ white-space: nowrap; font-size: 0.85em; }}
+#activity_log, #cost_panel, #models_panel, #qa_panel {{ overflow-x: auto; }}
+
+/* Tables read as data, not prose: quiet rules, right-aligned numbers, zebra rows. */
+.md th {{
+  text-align: left;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  border-bottom: 1px solid var(--border-color-primary);
+  padding: 6px 10px;
+}}
+.md td {{ padding: 6px 10px; border-bottom: 1px solid var(--border-color-primary); }}
+.md tbody tr:nth-child(even) {{ background: var(--background-fill-secondary); }}
+.md tbody tr:last-child td {{ font-weight: 600; }}
+
+/* Masthead */
+#masthead {{
+  border-left: 3px solid {BLUE};
+  padding: 2px 0 2px 14px;
+  margin-bottom: 4px;
+}}
+#masthead h1 {{ margin: 0 0 4px 0; font-size: 1.45rem; letter-spacing: -0.01em; }}
+#masthead p {{ margin: 0; opacity: 0.75; font-size: 0.93rem; max-width: 62ch; }}
+
+/* Status pill: the one thing that must be readable from across the room. */
+.pill {{
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border-radius: 999px;
+  font-weight: 600; font-size: 0.9rem;
+  border: 1px solid currentColor;
+}}
+.pill .dot {{
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor;
+}}
+.pill.running .dot {{ animation: pulse 1.2s ease-in-out infinite; }}
+@keyframes pulse {{ 0%,100% {{ opacity: 1; }} 50% {{ opacity: 0.25; }} }}
+.pill.idle {{ color: var(--body-text-color-subdued); }}
+.pill.running {{ color: {BLUE}; }}
+.pill.awaiting {{ color: {AMBER}; }}
+.pill.finished {{ color: #2e9e6b; }}
+.pill.failed {{ color: #d4483b; }}
+
+#status_panel pre {{
+  margin-top: 10px; padding: 10px; border-radius: 6px;
+  background: var(--background-fill-secondary);
+  border: 1px solid var(--border-color-primary);
+  font-size: 0.78rem; max-height: 220px; overflow: auto; white-space: pre-wrap;
+}}
+
+/* Activity log: dense, monospace, no syntax-highlight noise. */
+#activity_log .cm-editor {{ font-size: 0.8rem; line-height: 1.45; }}
+
+/* The cost figure is the number people actually watch. */
+#cost_panel table tbody tr:last-child {{ color: {AMBER}; }}
 """
 
 
@@ -156,12 +276,8 @@ def build_ui() -> gr.Blocks:
         status = snapshot["status"]
         awaiting = status == "awaiting_feedback"
 
-        header = f"### {STATUS_LABEL.get(status, status)}"
-        if snapshot["error"]:
-            header += "\n\n```\n" + snapshot["error"][-1500:] + "\n```"
-
         return (
-            header,
+            _status_html(status, snapshot["error"]),
             snapshot["log"] or "_Nothing yet._",
             _cost_table(snapshot),
             _progress(snapshot),
@@ -190,11 +306,13 @@ def build_ui() -> gr.Blocks:
 
     # Gradio 6 moved `theme` off the Blocks constructor onto launch().
     with gr.Blocks(title="Engineering Team") as demo:
-        gr.Markdown(
-            "# Engineering Team\n"
-            "A hierarchical CrewAI crew that designs, builds, tests and inspects a "
+        gr.HTML(
+            "<div id='masthead'>"
+            "<h1>Engineering Team</h1>"
+            "<p>A hierarchical CrewAI crew that designs, builds, tests and inspects a "
             "product from plain-English requirements — with a bounded revision loop "
-            "and a human gate before it ships."
+            "and a human gate before it ships.</p>"
+            "</div>"
         )
 
         # Reference material spans the full width and starts closed: in a narrow column
@@ -218,7 +336,9 @@ def build_ui() -> gr.Blocks:
                 )
 
             with gr.Column(scale=2):
-                status_box = gr.Markdown("### Idle")
+                status_box = gr.HTML(
+                    _status_html("idle", ""), elem_id="status_panel"
+                )
                 gr.Markdown("### Cost")
                 cost_box = gr.Markdown("_No LLM calls yet._", elem_id="cost_panel")
 
@@ -259,7 +379,7 @@ def build_ui() -> gr.Blocks:
 
 
 def main() -> None:
-    build_ui().launch(theme=gr.themes.Soft(), css=CSS)
+    build_ui().launch(theme=_theme(), css=CSS)
 
 
 if __name__ == "__main__":
