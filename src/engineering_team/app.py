@@ -56,12 +56,28 @@ STATUS_LABEL = {
 }
 
 
+# Gradio 6 moved `css` off the Blocks constructor onto launch(), same as `theme`.
+CSS = """
+/* Long model slugs and role names were being broken mid-word in narrow columns
+   ("backend_eng/ineer"), which is unreadable. Let wide content scroll instead. */
+.md table { table-layout: auto; }
+.md td, .md th { word-break: normal; overflow-wrap: normal; hyphens: none; }
+.md code { white-space: nowrap; font-size: 0.85em; }
+#activity_log, #cost_panel, #models_panel { overflow-x: auto; }
+"""
+
+
+def _short(model: str) -> str:
+    """Drop the routing prefix. Every model goes through OpenRouter, so it is noise."""
+    return model.removeprefix("openrouter/")
+
+
 def _model_table() -> str:
-    rows = ["| Role | Model | $/M in | $/M out |", "|---|---|---|---|"]
+    rows = ["| Role | Model | $/M in | $/M out |", "|---|---|---:|---:|"]
     for role, model in sorted(models().items()):
         price = price_for(model)
         rows.append(
-            f"| {role} | `{model}` | "
+            f"| {role.replace('_', ' ')} | `{_short(model)}` | "
             f"{price.input if price else '?'} | {price.output if price else '?'} |"
         )
     return "\n".join(rows)
@@ -181,39 +197,45 @@ def build_ui() -> gr.Blocks:
             "and a human gate before it ships."
         )
 
+        # Reference material spans the full width and starts closed: in a narrow column
+        # its tables wrapped mid-word, and open by default it pushed the input offscreen.
+        with gr.Accordion("What this team can build — worth reading first", open=False):
+            gr.Markdown(CAPABILITIES_MD, elem_id="capabilities_panel")
+
         with gr.Row():
             with gr.Column(scale=3):
                 requirements = gr.Textbox(
                     label="Requirements",
                     placeholder=PLACEHOLDER,
-                    lines=10,
+                    lines=12,
                 )
                 with gr.Row():
-                    run_button = gr.Button("Build it", variant="primary")
-                    example_button = gr.Button("Load example")
+                    run_button = gr.Button("Build it", variant="primary", scale=2)
+                    example_button = gr.Button("Load example", scale=1)
                 gr.Markdown(
                     "_A full build costs roughly **$0.50** and takes several minutes. "
                     "Asking for changes afterwards starts another one._"
                 )
-                status_box = gr.Markdown("### Idle")
 
             with gr.Column(scale=2):
-                with gr.Accordion("What this team can build — read before writing", open=True):
-                    gr.Markdown(CAPABILITIES_MD)
-                gr.Markdown("### Models")
-                gr.Markdown(_model_table())
+                status_box = gr.Markdown("### Idle")
                 gr.Markdown("### Cost")
-                cost_box = gr.Markdown("_No LLM calls yet._")
+                cost_box = gr.Markdown("_No LLM calls yet._", elem_id="cost_panel")
+
+        with gr.Accordion("Models and pricing", open=False):
+            gr.Markdown(_model_table(), elem_id="models_panel")
 
         with gr.Row():
             with gr.Column(scale=3):
                 gr.Markdown("### Activity")
-                log_box = gr.Code(label="", language=None, lines=20)
+                log_box = gr.Code(
+                    label="", language=None, lines=20, elem_id="activity_log"
+                )
             with gr.Column(scale=2):
                 gr.Markdown("### Progress")
                 progress_box = gr.Markdown("_Not started._")
                 gr.Markdown("### QA report")
-                qa_box = gr.Markdown("_No QA report yet._")
+                qa_box = gr.Markdown("_No QA report yet._", elem_id="qa_panel")
 
         feedback_box = gr.Textbox(
             label="Your feedback", lines=3, visible=False,
@@ -237,7 +259,7 @@ def build_ui() -> gr.Blocks:
 
 
 def main() -> None:
-    build_ui().launch(theme=gr.themes.Soft())
+    build_ui().launch(theme=gr.themes.Soft(), css=CSS)
 
 
 if __name__ == "__main__":
