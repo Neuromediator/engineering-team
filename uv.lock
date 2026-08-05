@@ -701,12 +701,14 @@ source = { editable = "." }
 dependencies = [
     { name = "crewai", extra = ["tools"] },
     { name = "e2b-code-interpreter" },
+    { name = "gradio" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "crewai", extras = ["tools"], specifier = "==1.15.10" },
     { name = "e2b-code-interpreter", specifier = ">=2.9.0" },
+    { name = "gradio", specifier = ">=6" },
 ]
 
 [[package]]

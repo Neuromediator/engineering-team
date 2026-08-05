@@ -6,7 +6,7 @@ asks whether to ship or revise.
 
 Run locally::
 
-    uv run ui
+    uv run serve
 """
 
 from __future__ import annotations

@@ -279,7 +279,7 @@ deployed run.
 
 ### Phase 5 notes (complete)
 
-`uv run ui` serves a Gradio 6 app: requirements in, live activity log, live cost panel,
+`uv run serve` serves a Gradio 6 app: requirements in, live activity log, live cost panel,
 QA findings table, and a human gate before anything ships.
 
 **Human-in-the-loop without blocking.** `PendingUIFeedbackProvider` implements CrewAI's
