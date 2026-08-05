@@ -19,6 +19,9 @@ design_task:
     files are in the same directory.
     Everything runs in a uv project with gradio installed. Backend code may use only the
     Python standard library.
+    Feedback to address from previous rounds of review (on the first attempt this says
+    there is none — in that case just build it right the first time):
+    {revision_notes}
   expected_output: >
     A detailed design to achieve the requirements, identifying code structure and the work
     each engineer needs to do.
@@ -29,6 +32,9 @@ code_task:
     Have the backend_engineer write the python code that implements the design, in order to
     achieve the requirements.
     Here are the requirements: {requirements}
+    Feedback to address from previous rounds of review (on the first attempt this says
+    there is none — in that case just build it right the first time):
+    {revision_notes}
   expected_output: >
     Python files written to the sandbox and checked, implementing the design and achieving
     the requirements.
@@ -46,6 +52,9 @@ frontend_task:
     IMPORTANT: the validation script must NOT call `.launch()` — that would block until
     timeout. Just import and instantiate.
     Here are the requirements: {requirements}
+    Feedback to address from previous rounds of review (on the first attempt this says
+    there is none — in that case just build it right the first time):
+    {revision_notes}
   expected_output: >
     A gradio UI in module app.py written to the sandbox that demonstrates the functionality,
     ready to run as-is in the same sandbox directory as the backend code.
@@ -62,6 +71,9 @@ test_task:
     unit tests pass.
     If any backend code changes, ensure the unit tests still pass and that the gradio app in
     app.py will still work. Avoid changes that might break app.py.
+    Feedback to address from previous rounds of review (on the first attempt this says
+    there is none — in that case just build it right the first time):
+    {revision_notes}
   expected_output: >
     A single test file that can be run to test the backend module, plus a summary of the
     results of running it.
@@ -80,6 +92,9 @@ qa_task:
     If the inspector reports any blocker- or major-severity findings, delegate the fixes to
     the engineer who owns the affected file, then have the qa_inspector re-verify. Repeat
     until no blocking findings remain, then stop.
+    Feedback to address from previous rounds of review (on the first attempt this says
+    there is none — in that case just build it right the first time):
+    {revision_notes}
   expected_output: >
     A QAReport: `passed` true only if the tests were actually run, all passed, and no
     blocker- or major-severity findings remain. Include `summary`, the list of `findings`

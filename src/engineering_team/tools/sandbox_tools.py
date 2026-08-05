@@ -63,32 +63,71 @@ def write_sandbox_file(filename: str, content: str) -> str:
     return f"Wrote {len(content)} characters to {filename}."
 
 
+EXEC_TIMEOUT = 300
+
+# Agents pay for every character of tool output as input tokens on the next call, and a
+# runaway loop can print megabytes. Keep the head and tail of each stream: the traceback
+# that matters is almost always at one end or the other.
+_STREAM_LIMIT = 12_000
+
+
+def _clip(text: str, limit: int = _STREAM_LIMIT) -> str:
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    dropped = len(text) - limit
+    return f"{text[:half]}\n... [{dropped} characters omitted] ...\n{text[-half:]}"
+
+
+def _format_result(returncode: int, stdout: str, stderr: str) -> str:
+    """Render an execution result so an agent can actually debug from it."""
+    status = "SUCCESS" if returncode == 0 else f"FAILED (exit code {returncode})"
+    parts = [f"[{status}]"]
+    parts.append(f"--- stdout ---\n{_clip(stdout).rstrip()}" if stdout.strip() else "--- stdout ---\n(empty)")
+    # unittest writes its entire report to stderr, so this is the important half.
+    parts.append(f"--- stderr ---\n{_clip(stderr).rstrip()}" if stderr.strip() else "--- stderr ---\n(empty)")
+    return "\n".join(parts)
+
+
 @tool("Run Sandbox Python File")
 def run_sandbox_python(filename: str) -> str:
     """
     Execute a Python file from the sandbox directory inside an ephemeral
     Docker container, with the sandbox mounted as the working directory,
-    using a uv run to run the code in the uv project,
-    and return whatever the script printed to stdout.
+    using a uv run to run the code in the uv project.
 
     Args:
         filename: The name of the Python file to run (e.g. "solution.py").
     Returns:
-        The text printed to stdout by the executed script.
+        The exit status, stdout and stderr of the run. Note that `unittest`
+        reports its results on stderr, not stdout.
     """
-    result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-v", f"{SANDBOX_DIR}:/workspace",
-            "-w", "/workspace",
-            "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
-            "uv", "run", filename,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    return result.stdout
+    try:
+        result = subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{SANDBOX_DIR}:/workspace",
+                "-w", "/workspace",
+                "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
+                "uv", "run", filename,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=EXEC_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Raising here would surface as an opaque tool error; the agent needs to know
+        # its code hung so it can look for a blocking call (a stray `.launch()`).
+        return _format_result(
+            124,
+            exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+            f"Execution exceeded {EXEC_TIMEOUT}s and was killed. The script probably "
+            f"blocks — check for input(), .launch(), or an infinite loop.",
+        )
+    except OSError as exc:
+        return _format_result(125, "", f"Could not start the container: {exc}")
+
+    return _format_result(result.returncode, result.stdout, result.stderr)
 
 sandbox_tools = [list_sandbox_files, read_sandbox_file, write_sandbox_file, run_sandbox_python]
 

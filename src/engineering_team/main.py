@@ -5,6 +5,7 @@ from datetime import datetime
 
 import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch on import
 from engineering_team.crew import EngineeringTeam
+from engineering_team.flows import ProductFlow
 from engineering_team.model_config import models
 from engineering_team.observability.recorder import CostListener, RunRecorder
 from engineering_team.preflight import assert_ready
@@ -30,16 +31,12 @@ The system should prevent the user from withdrawing funds that would leave them 
  The system has access to a function get_share_price(symbol) which returns the current price of a share, and includes a test implementation that returns fixed prices for AAPL, TSLA, GOOGL.
 """
 
-def run():
-    """
-    Run the crew.
-    """
-    inputs = {
-        'requirements': requirements,
-    }
+def _announce() -> RunRecorder:
+    """Fail before spending anything, then start cost accounting.
 
-    # Fail before spending anything. A run whose sandbox cannot execute still costs
-    # full price while producing code nobody verified.
+    A run whose sandbox cannot execute still costs full price while producing code
+    nobody verified, so the preflight comes first.
+    """
     assert_ready()
 
     print("\nModels:")
@@ -48,19 +45,61 @@ def run():
 
     recorder = RunRecorder()
     CostListener(recorder)
+    return recorder
 
-    try:
-        reset_sandbox()
-        EngineeringTeam().crew().kickoff(inputs=inputs)
-    except Exception as e:
-        # Report what was already spent; a crash should not hide the cost.
-        recorder.settle()
-        print(recorder.summary())
-        raise Exception(f"An error occurred while running the crew: {e}")
 
+def _report(recorder: RunRecorder) -> None:
     # Event handlers run on a thread pool, so let in-flight events land before totalling.
     recorder.settle()
     print(recorder.summary())
+
+
+def run():
+    """Run the full product flow: build, inspect, revise until QA passes or the cap hits."""
+    recorder = _announce()
+    flow = ProductFlow()
+
+    try:
+        flow.kickoff(inputs={"requirements": requirements})
+    except Exception as e:
+        # Report what was already spent; a crash should not hide the cost.
+        _report(recorder)
+        raise Exception(f"An error occurred while running the flow: {e}")
+
+    _report(recorder)
+
+    state = flow.state
+    print(f"\nIterations: {state.iteration} of {state.max_iterations}")
+    for record in state.history:
+        mark = "PASS" if record.passed else "FAIL"
+        print(f"  [{mark}] iteration {record.iteration}: {record.summary}")
+    if not state.approved:
+        print("\nNot approved. Outstanding revision notes:")
+        for note in state.revision_notes:
+            print(f"  - {note}")
+
+
+def run_once():
+    """Run the hierarchical crew a single time, with no outer review loop.
+
+    Kept because it is the cheaper thing to run when the question is "does the crew
+    still work", not "is the product good".
+    """
+    recorder = _announce()
+
+    try:
+        reset_sandbox()
+        EngineeringTeam().crew().kickoff(
+            inputs={
+                "requirements": requirements,
+                "revision_notes": "None - this is the first attempt.",
+            }
+        )
+    except Exception as e:
+        _report(recorder)
+        raise Exception(f"An error occurred while running the crew: {e}")
+
+    _report(recorder)
 
 
 def train():

@@ -135,13 +135,66 @@ committed price against the live catalogue.
 |---|---|---|
 | 0 | Upgrade & de-risk — git init, crewai 1.15.10, rewrite `patch.py`, smoke test | **done** |
 | 1 | Cost floor — all roles onto OpenRouter via `config/models.yaml` | **done** |
-| 2 | Sandbox abstraction — `SandboxBackend` protocol, Docker + E2B, per-run isolation | |
+| 2 | Sandbox abstraction — `SandboxBackend` protocol, Docker + E2B, per-run isolation | partial |
 | 3 | Hierarchical + QA Inspector — `manager_agent`, `QAReport` Pydantic verdict | **done** |
-| 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | next |
-| 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | |
+| 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | **done** |
+| 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | next |
 | 6 | Parallel supervisor — variant racing + comparison view | |
 | 7 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |
 | 8 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
+
+### Phase 2 notes (partial, deliberately)
+
+The `SandboxBackend` protocol and the E2B backend are deferred to Phase 7, where deployment
+gives them a second implementation to abstract over. Building the seam before then invites
+guessing wrong about where it goes.
+
+One piece could not wait. `run_sandbox_python` returned `result.stdout` and dropped stderr
+and the exit code — and `unittest` writes its *entire* report to stderr, so every test run
+came back as an empty string. Agents were debugging blind, and the new QA Inspector, whose
+job is to run the tests and report what failed, would have been judging builds on nothing.
+It now returns exit status, stdout and stderr, clips each stream to 12k characters (agents
+pay for tool output as input tokens on the next call), and converts a timeout into a
+readable message naming the likely cause instead of raising.
+
+Still outstanding for Phase 2: per-run `sandbox/<run_id>/` isolation, which Phase 6's
+variant racing requires.
+
+### Phase 4 notes (complete)
+
+`ProductFlow` wraps the hierarchical crew in the loop that decides whether to go round again:
+
+    @start / @start("revise")  build      -> run the hierarchical crew
+    @router(build)             evaluate   -> "approved" | "revise" | "exhausted"
+    @listen("approved")        finalize
+    @listen("exhausted")       stop_at_cap
+
+The division of labour is deliberate: autonomy inside a build (the manager genuinely should
+choose who does what), determinism about whether to keep spending. `evaluate` is ordinary
+Python branching on `QAReport.verdict()`.
+
+Verified against synthetic reports, no API calls:
+
+| Input | Branch |
+|---|---|
+| Clean pass | `approved` |
+| Blocker or major finding | `revise` |
+| Minor/nit only | `approved` — advisory severities cannot trap the loop |
+| `passed=True` but tests never run | `revise` |
+| Tests ran and failed | `revise` |
+| No structured report at all | `revise` — fails safe, never a silent pass |
+| Blocking finding at the cap | `exhausted` |
+
+Blocking findings are carried into `state.revision_notes` and interpolated into the next
+build's task descriptions, so a revision knows what to fix. The sandbox is reset only on
+iteration 1 — resetting on a revision would discard the very code being corrected.
+
+`@persist()` checkpoints to SQLite (`~/.local/share/engineering_team/flow_states.db`, *not*
+in-project — matters for Phase 7, where Spaces storage is ephemeral). That is what will make
+the Phase 5 human-feedback pause survivable via `Flow.from_pending(flow_id)` + `resume()`.
+
+`run_crew` now drives the flow; `run_once` runs a single crew pass, which is the cheaper
+thing to run when the question is "does the crew still work" rather than "is the product good".
 
 ### Phase 0 notes (complete)
 
