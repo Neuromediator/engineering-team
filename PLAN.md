@@ -135,30 +135,88 @@ committed price against the live catalogue.
 |---|---|---|
 | 0 | Upgrade & de-risk — git init, crewai 1.15.10, rewrite `patch.py`, smoke test | **done** |
 | 1 | Cost floor — all roles onto OpenRouter via `config/models.yaml` | **done** |
-| 2 | Sandbox abstraction — `SandboxBackend` protocol, Docker + E2B, per-run isolation | partial |
+| 2 | Sandbox execution feedback — surface exit code + stderr so agents can debug | **done** |
 | 3 | Hierarchical + QA Inspector — `manager_agent`, `QAReport` Pydantic verdict | **done** |
 | 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | **done** |
-| 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | next |
-| 6 | Parallel supervisor — variant racing + comparison view | |
-| 7 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |
-| 8 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
+| 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | **done** |
+| 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | next |
+| 7 | Parallel supervisor — variant racing + comparison view | |
+| 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | |
+| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |
+| 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
 
-### Phase 2 notes (partial, deliberately)
+Phases are numbered in the order they are actually built. The original Phase 2 bundled three
+things that turned out to belong at three different times — execution feedback was urgent
+(phase 2), per-run isolation is only needed once runs are concurrent (phase 6), and the
+backend protocol should not be designed until deployment supplies its second implementation
+(phase 8). They were split rather than left as one "partial" phase, so the numbering keeps
+meaning what it says.
 
-The `SandboxBackend` protocol and the E2B backend are deferred to Phase 7, where deployment
-gives them a second implementation to abstract over. Building the seam before then invites
-guessing wrong about where it goes.
+### Phase 2 notes (complete)
 
-One piece could not wait. `run_sandbox_python` returned `result.stdout` and dropped stderr
-and the exit code — and `unittest` writes its *entire* report to stderr, so every test run
-came back as an empty string. Agents were debugging blind, and the new QA Inspector, whose
-job is to run the tests and report what failed, would have been judging builds on nothing.
+`run_sandbox_python` returned `result.stdout` and dropped stderr and the exit code — and
+`unittest` writes its *entire* report to stderr, so every test run came back as an empty
+string. Agents were debugging blind, and the QA Inspector added in phase 3, whose whole job
+is to run the tests and report what failed, would have been judging builds on nothing.
+
 It now returns exit status, stdout and stderr, clips each stream to 12k characters (agents
-pay for tool output as input tokens on the next call), and converts a timeout into a
-readable message naming the likely cause instead of raising.
+pay for tool output as input tokens on the very next call), and converts a timeout into a
+readable message naming the likely cause — a stray `.launch()`, `input()`, or an infinite
+loop — instead of raising an opaque tool error.
 
-Still outstanding for Phase 2: per-run `sandbox/<run_id>/` isolation, which Phase 6's
-variant racing requires.
+The two things originally bundled into this phase moved out to where they belong:
+per-run `sandbox/<run_id>/` isolation is phase 6, because nothing needs it until runs are
+concurrent; the `SandboxBackend` protocol and E2B backend are phase 8, because a protocol
+designed before its second implementation exists is a guess.
+
+### Phase 5 notes (complete)
+
+`uv run ui` serves a Gradio 6 app: requirements in, live activity log, live cost panel,
+QA findings table, and a human gate before anything ships.
+
+**Human-in-the-loop without blocking.** `PendingUIFeedbackProvider` implements CrewAI's
+`HumanFeedbackProvider` protocol structurally and raises `HumanFeedbackPending` instead of
+reading stdin. The framework persists flow state at that moment, so the UI resumes with
+`ProductFlow.from_pending(flow_id)` + `resume(feedback)` — reloading rather than reusing the
+in-memory object, because that same path is what would work after a process restart. A paused
+run costs nothing while it waits, which matters on a free tier that sleeps.
+
+The flow graph, confirmed from the built `flow_definition`:
+
+| Method | Trigger | Emits |
+|---|---|---|
+| `build` | `@start`, and `"revise"` | |
+| `evaluate` | listens `build` | `approved` / `revise` / `exhausted` |
+| `finalize` | listens `approved` | |
+| `stop_at_cap` | listens `exhausted` | |
+| `human_review` | listens `or_(finalize, stop_at_cap)` | `ship` / `revise` |
+| `deliver` | listens `ship` | |
+
+`human_review` emitting `"revise"` re-enters `build` — the same branch the router uses, so
+human and automatic revisions travel identical machinery rather than parallel code paths.
+
+Three traps worth recording:
+
+- `@human_feedback`'s `llm` parameter **defaults to `"gpt-5.4-mini"`**, which would route to
+  OpenAI — a provider this project has no key for, and a fourth model outside the chosen
+  three. It is set explicitly to the manager's model.
+- The documented way to read the result, `self.human_feedback`, **does not exist** on the
+  instance. The real accessors are `last_human_feedback` and `human_feedback_history`. More
+  doc drift; verified by introspection.
+- Pausing is opt-in via `enable_pausing()`. The decorator is evaluated at import time, so one
+  provider object serves both surfaces: the UI turns pausing on, a headless `run_crew` leaves
+  it off and gets an empty answer that falls through to `default_outcome="ship"`. Without
+  that switch a CLI run would pause forever with nobody to answer.
+
+A human asking for another pass also grants a fresh iteration budget
+(`max_iterations = iteration + MAX_AUTO_ITERATIONS`). The cap exists to bound *unattended*
+looping, not to overrule someone watching it work.
+
+Gradio 6 moved `theme` off the `Blocks` constructor onto `launch()`; the app is warning-clean
+under `-W error::UserWarning`.
+
+**Not yet exercised live.** The UI builds, all panels render against synthetic state, and the
+flow graph is verified — but the full human-feedback round trip needs a paid run.
 
 ### Phase 4 notes (complete)
 

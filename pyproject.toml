@@ -12,6 +12,7 @@ dependencies = [
 engineering_team = "engineering_team.main:run"
 run_crew = "engineering_team.main:run"
 run_once = "engineering_team.main:run_once"
+ui = "engineering_team.app:main"
 train = "engineering_team.main:train"
 replay = "engineering_team.main:replay"
 test = "engineering_team.main:test"
