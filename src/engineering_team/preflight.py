@@ -158,9 +158,21 @@ def check_uv() -> CheckResult:
 
 
 def run_all(*, require_docker: bool = True) -> list[CheckResult]:
+    """Check what the *configured* backend actually needs.
+
+    Docker is irrelevant when execution happens on a remote microVM — on Hugging Face
+    Spaces there is no Docker daemon at all, so checking for one would block every run.
+    """
+    from .tools.sandbox import backend_name
+
     checks = [check_uv(), check_api_key()]
-    if require_docker:
+
+    backend = backend_name()
+    if backend == "e2b":
+        checks.append(check_api_key("E2B_API_KEY"))
+    elif require_docker:
         checks.append(check_docker())
+
     return checks
 
 

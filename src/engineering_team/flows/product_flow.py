@@ -129,10 +129,29 @@ class ProductFlow(Flow[ProductState]):
         self.state.max_iterations = self.state.iteration + MAX_AUTO_ITERATIONS
 
     def sandbox(self) -> Sandbox:
-        """This run's sandbox, created on first use and stable across resumes."""
+        """This run's sandbox, created once and reused for every iteration.
+
+        Caching matters more than it looks. A revision iteration must see the code the
+        previous one wrote, and with a remote backend a fresh object would mean a fresh
+        microVM — empty, and leaking the one still running and still billing.
+        """
         if not self.state.run_id:
             self.state.run_id = new_run_id()
-        return Sandbox(SANDBOX_ROOT / self.state.run_id)
+
+        existing = getattr(self, "_sandbox", None)
+        if existing is not None:
+            return existing
+
+        sandbox = Sandbox(SANDBOX_ROOT / self.state.run_id, run_id=self.state.run_id)
+        self._sandbox = sandbox
+        return sandbox
+
+    def release_sandbox(self) -> None:
+        """Release the workspace. A no-op locally; ends billing on a remote backend."""
+        sandbox = getattr(self, "_sandbox", None)
+        if sandbox is not None:
+            sandbox.close()
+            self._sandbox = None
 
     @start("revise")
     def build(self) -> str:
@@ -272,4 +291,8 @@ class ProductFlow(Flow[ProductState]):
         verdict = "QA-approved" if self.state.approved else "shipped with findings outstanding"
         message = f"Delivered after {self.state.iteration} iteration(s) — {verdict}."
         print(f"\n{message}")
+        # Terminal step: nothing else will touch the workspace, so stop paying for it.
+        # Deliberately not done in finalize/stop_at_cap — a human can still send those
+        # back for another pass, and that pass needs the existing files.
+        self.release_sandbox()
         return message

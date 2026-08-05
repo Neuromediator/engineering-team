@@ -170,8 +170,8 @@ race supervisor is verified only against synthetic results.
 | 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | **done** |
 | 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | **done** |
 | 7 | Parallel supervisor — variant racing + ranking | **done** |
-| 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | next |
-| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |
+| 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | **done** |
+| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | next |
 | 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
 
 Phases are numbered in the order they are actually built. The original Phase 2 bundled three
@@ -236,6 +236,46 @@ whole still comes from the recorder.
 
 A race multiplies spend, so `variants` is an explicit argument and the per-variant iteration
 cap is tightened to 2.
+
+### Phase 8 notes (complete)
+
+`SANDBOX_BACKEND=docker|e2b` selects where a run's files live and its code executes.
+Written now rather than in the original phase 2 precisely because there were finally two
+implementations to compare — and the comparison moved the seam.
+
+**The seam is files, not execution.** The obvious abstraction is "where does code run".
+That is wrong here: Docker bind-mounts a host directory, so reads and writes are ordinary
+filesystem calls, while E2B keeps everything on a remote microVM where every read and write
+crosses the network. An abstraction over execution alone would have left the file operations
+silently local and produced an E2B backend that ran code against an empty VM.
+
+**The trap E2B set.** `commands.run` raises `CommandExitException` on *any* non-zero exit.
+Unhandled, that would have recreated — in the deployed backend — the exact bug phase 2 fixed
+locally: agents never seeing a failing test run. Worse, the exception subclasses
+`SandboxException`, so a natural `except SandboxException` would catch it and mislabel every
+test failure as "could not start the sandbox". It is caught first, and a non-zero exit is
+returned as the *result* it is.
+
+Verified against the real service, both backends producing identical output:
+
+| Case | Docker | E2B |
+|---|---|---|
+| `print()` success | `[SUCCESS]` + stdout | `[SUCCESS]` + stdout |
+| failing unittest | `[FAILED (exit code 1)]` + stderr traceback | `[FAILED (exit code 1)]` + stderr traceback |
+| missing file read | "No such file" | "No such file" |
+
+Two lifecycle problems the abstraction exposed, both invisible with Docker:
+
+- `build()` created a fresh `Sandbox` per iteration. Locally harmless; on E2B that is a new
+  empty microVM every revision, leaking the previous one *and still being billed for it*.
+  The flow now caches one sandbox for the whole run.
+- Nothing ever killed the VM. `deliver` now releases it — deliberately not `finalize` or
+  `stop_at_cap`, because a human can still send those back for another pass that needs the
+  existing files.
+
+Preflight is backend-aware: it checks `E2B_API_KEY` instead of Docker when configured for
+E2B. Spaces has no Docker daemon at all, so checking for one would have blocked every
+deployed run.
 
 ### Phase 5 notes (complete)
 

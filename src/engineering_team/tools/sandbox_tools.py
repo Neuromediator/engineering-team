@@ -1,83 +1,31 @@
 """Per-run sandboxes and the tools agents use to work in them.
 
-Each run gets its own directory under ``sandbox/``. That is what lets several flows run
-at once without one crew overwriting another's ``account.py`` — a prerequisite for the
-variant racing in phase 7, and cheap insurance against confusing cross-talk before then.
+Each run gets its own workspace. That is what lets several flows run at once without one
+crew overwriting another's ``account.py`` — required by the racing supervisor, and cheap
+insurance against confusing cross-talk before then.
 
-Tools are **bound to a sandbox instance** rather than reading a global. A module-level
-current-directory would have to be a thread-local or context variable, and CrewAI executes
+Tools are **bound to a Sandbox instance** rather than reading a global. A module-level
+current-workspace would have to be a thread-local or context variable, and CrewAI executes
 agent steps on pools whose propagation rules are not guaranteed; binding at construction
 removes the question entirely.
+
+Where the workspace actually lives is the backend's business — a local directory plus
+Docker during development, a Firecracker microVM once deployed. See :mod:`.sandbox`.
 """
 
 from crewai.tools import tool
 from pathlib import Path
-import os
-import shutil
-import subprocess
 import uuid
+
+from .sandbox import SandboxBackend, backend_name, make_backend
 
 
 SANDBOX_ROOT = Path(__file__).parents[3] / "sandbox"
 SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
 
-RUNNER_IMAGE = "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
-EXEC_TIMEOUT = 300
-
-# Agents pay for every character of tool output as input tokens on the next call, and a
-# runaway loop can print megabytes. Keep the head and tail of each stream: the traceback
-# that matters is almost always at one end or the other.
-_STREAM_LIMIT = 12_000
-
-# uv wants a writable HOME and cache. As a non-root user the image's default HOME is not
-# writable, so point both somewhere that always is, and keep them out of the bind mount
-# so they never show up as files the agents think they wrote.
-_CONTAINER_ENV = [
-    "-e", "HOME=/tmp",
-    "-e", "UV_CACHE_DIR=/tmp/uv-cache",
-    # The cache and the bind-mounted project are on different filesystems, so uv cannot
-    # hardlink between them and warns on every run. Agents read that warning as an error
-    # and try to "fix" it, so state the intent instead of paying for the confusion.
-    "-e", "UV_LINK_MODE=copy",
-]
-
 
 def new_run_id() -> str:
     return uuid.uuid4().hex[:12]
-
-
-def _container_user() -> list[str]:
-    """Run containers as the host user so the sandbox stays deletable.
-
-    Docker defaults to root, and anything it writes into a bind mount is owned by root
-    on the host. A later cleanup then fails with EPERM trying to remove files it does not
-    own — which is exactly how a run once died before spending a cent.
-    """
-    if os.name != "posix":
-        return []
-    return ["--user", f"{os.getuid()}:{os.getgid()}"]
-
-
-def _clip(text: str, limit: int = _STREAM_LIMIT) -> str:
-    if len(text) <= limit:
-        return text
-    half = limit // 2
-    dropped = len(text) - limit
-    return f"{text[:half]}\n... [{dropped} characters omitted] ...\n{text[-half:]}"
-
-
-def _format_result(returncode: int, stdout: str, stderr: str) -> str:
-    """Render an execution result so an agent can actually debug from it."""
-    status = "SUCCESS" if returncode == 0 else f"FAILED (exit code {returncode})"
-    parts = [f"[{status}]"]
-    parts.append(
-        f"--- stdout ---\n{_clip(stdout).rstrip()}" if stdout.strip() else "--- stdout ---\n(empty)"
-    )
-    # unittest writes its entire report to stderr, so this is the important half.
-    parts.append(
-        f"--- stderr ---\n{_clip(stderr).rstrip()}" if stderr.strip() else "--- stderr ---\n(empty)"
-    )
-    return "\n".join(parts)
 
 
 def _never_cache(*_args, **_kwargs) -> bool:
@@ -85,99 +33,55 @@ def _never_cache(*_args, **_kwargs) -> bool:
 
 
 class Sandbox:
-    """One run's working directory, plus the tools that operate on it."""
+    """One run's workspace, plus the tools that operate on it."""
 
-    def __init__(self, root: Path | str | None = None) -> None:
-        self.root = Path(root) if root is not None else SANDBOX_ROOT / new_run_id()
+    def __init__(
+        self,
+        root: Path | str | None = None,
+        run_id: str | None = None,
+        backend: SandboxBackend | None = None,
+    ) -> None:
+        self.run_id = run_id or (Path(root).name if root else new_run_id())
+        self.root = Path(root) if root is not None else SANDBOX_ROOT / self.run_id
+        self.backend = backend if backend is not None else make_backend(self.run_id, self.root)
         self._tools: list | None = None
 
     def __repr__(self) -> str:
-        return f"Sandbox({self.root})"
+        return f"Sandbox({self.backend.location})"
+
+    @property
+    def location(self) -> str:
+        """Where this run's files actually are, for logs and the UI."""
+        return self.backend.location
 
     # -- lifecycle ----------------------------------------------------------------
 
-    def _force_remove(self) -> None:
-        """Remove the directory, falling back to root-in-a-container for old leftovers."""
-        try:
-            shutil.rmtree(self.root)
-            return
-        except FileNotFoundError:
-            return
-        except PermissionError:
-            pass
-
-        # Files a previous root container left behind, from before containers ran as the
-        # host user. Borrow root the same way they got it: mount the parent and delete.
-        subprocess.run(
-            [
-                "docker", "run", "--rm",
-                "-v", f"{self.root.parent}:/parent",
-                "busybox:latest",
-                "rm", "-rf", f"/parent/{self.root.name}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=True,
-        )
-
     def reset(self) -> None:
-        """Wipe the sandbox and re-initialize it as a fresh uv project with gradio."""
-        if self.root.exists():
-            self._force_remove()
-        self.root.mkdir(parents=True)
+        """Create an empty workspace with gradio available, discarding anything prior."""
+        self.backend.reset()
 
-        subprocess.run(
-            ["uv", "init", "--bare", "--python", "3.13"], cwd=self.root, check=True
-        )
-        subprocess.run(["uv", "add", "gradio"], cwd=self.root, check=True)
+    def close(self) -> None:
+        """Release remote resources. A no-op for the local backend."""
+        self.backend.close()
 
     # -- operations, wrapped as tools below ---------------------------------------
 
     def list_files(self) -> str:
-        names = sorted(p.name for p in self.root.iterdir())
+        names = self.backend.list_files()
         return "\n".join(names) if names else "The sandbox is empty."
 
     def read_file(self, filename: str) -> str:
-        path = self.root / filename
-        if not path.is_file():
+        content = self.backend.read_file(filename)
+        if content is None:
             return f"No such file in the sandbox: {filename}"
-        return path.read_text()
+        return content
 
     def write_file(self, filename: str, content: str) -> str:
-        path = self.root / filename
-        path.write_text(content)
-        return f"Wrote {len(content)} characters to {filename}."
+        written = self.backend.write_file(filename, content)
+        return f"Wrote {written} characters to {filename}."
 
     def run_python(self, filename: str) -> str:
-        try:
-            result = subprocess.run(
-                [
-                    "docker", "run", "--rm",
-                    *_container_user(),
-                    *_CONTAINER_ENV,
-                    "-v", f"{self.root}:/workspace",
-                    "-w", "/workspace",
-                    RUNNER_IMAGE,
-                    "uv", "run", filename,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=EXEC_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired as exc:
-            # Raising here would surface as an opaque tool error; the agent needs to know
-            # its code hung so it can look for a blocking call (a stray `.launch()`).
-            return _format_result(
-                124,
-                exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
-                f"Execution exceeded {EXEC_TIMEOUT}s and was killed. The script probably "
-                f"blocks — check for input(), .launch(), or an infinite loop.",
-            )
-        except OSError as exc:
-            return _format_result(125, "", f"Could not start the container: {exc}")
-
-        return _format_result(result.returncode, result.stdout, result.stderr)
+        return self.backend.run_python(filename).render()
 
     # -- tools --------------------------------------------------------------------
 
@@ -228,9 +132,8 @@ class Sandbox:
         @tool("Run Sandbox Python File")
         def run_sandbox_python(filename: str) -> str:
             """
-            Execute a Python file from the sandbox directory inside an ephemeral
-            Docker container, with the sandbox mounted as the working directory,
-            using a uv run to run the code in the uv project.
+            Execute a Python file from the sandbox in an isolated environment and
+            return what happened.
 
             Args:
                 filename: The name of the Python file to run (e.g. "solution.py").
@@ -253,3 +156,6 @@ class Sandbox:
 
         self._tools = built
         return built
+
+
+__all__ = ["SANDBOX_ROOT", "Sandbox", "backend_name", "new_run_id"]
