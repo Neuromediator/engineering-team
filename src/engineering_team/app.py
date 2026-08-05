@@ -250,6 +250,11 @@ def _qa_findings(snapshot: dict) -> str:
     state = snapshot["state"]
     report = getattr(state, "qa_report", None) if state else None
     if report is None:
+        if snapshot["status"] == "running":
+            return (
+                "_The inspector reports once it has read the sandbox and run the tests "
+                "itself — so this stays empty until the build is complete._"
+            )
         return "_No QA report yet._"
 
     lines = [
@@ -331,8 +336,8 @@ def build_ui() -> gr.Blocks:
                     run_button = gr.Button("Build it", variant="primary", scale=2)
                     example_button = gr.Button("Load example", scale=1)
                 gr.Markdown(
-                    "_A full build costs roughly **$0.50** and takes several minutes. "
-                    "Asking for changes afterwards starts another one._"
+                    "_Measured: **$0.22 / ~10 min** sequential, **$0.52 / ~30 min** hierarchical. "
+                    "Asking for changes afterwards starts another build._"
                 )
 
             with gr.Column(scale=2):

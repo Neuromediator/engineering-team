@@ -1,3 +1,5 @@
+import os
+
 from crewai import Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
@@ -27,6 +29,23 @@ WORKER_TIME_LIMIT = 420
 # and the sleeps just stretched the run.
 CREW_MAX_RPM = 120
 
+PROCESS_ENV_VAR = "CREW_PROCESS"
+
+# Sequential is the default because it was measured to be the better tool for this
+# pipeline: 37 LLM calls against 102 for the same product, at 2.4x less cost. The work
+# order here is known in advance — design, backend, frontend, tests — so a manager
+# spends calls re-deriving a plan that was already correct.
+#
+# Hierarchical remains one env var away, deliberately. The comparison is the most
+# interesting result this project produced, and a reviewer who can reproduce it by
+# flipping a switch is worth more than a table asserting it.
+DEFAULT_PROCESS = "sequential"
+VALID_PROCESSES = ("sequential", "hierarchical")
+
+
+def process_name() -> str:
+    return (os.environ.get(PROCESS_ENV_VAR) or DEFAULT_PROCESS).strip().lower()
+
 
 @CrewBase
 class EngineeringTeam():
@@ -49,24 +68,55 @@ class EngineeringTeam():
     agents: list[BaseAgent]
     tasks: list[Task]
 
-    def __init__(self, sandbox: Sandbox | None = None) -> None:
+    def __init__(
+        self, sandbox: Sandbox | None = None, process: str | None = None
+    ) -> None:
         # The sandbox is per-run, so it is injected rather than imported. Every agent in
         # this crew shares one instance, which is how they see each other's files.
         self.sandbox = sandbox if sandbox is not None else Sandbox()
+
+        self.process = (process or process_name()).strip().lower()
+        if self.process not in VALID_PROCESSES:
+            raise ValueError(
+                f"Unknown {PROCESS_ENV_VAR}={self.process!r}. "
+                f"Valid options are {' and '.join(VALID_PROCESSES)}."
+            )
+        self._lead: Agent | None = None
+
+    @property
+    def is_hierarchical(self) -> bool:
+        return self.process == "hierarchical"
+
+    def _owner(self, build_agent) -> Agent | None:
+        """Who executes a task.
+
+        Sequential needs an explicit owner per task. Hierarchical must NOT have one —
+        CrewAI routes every task to the manager regardless, and naming an agent there
+        would be documentation that lies about what happens.
+        """
+        return None if self.is_hierarchical else build_agent()
 
     # Models come from config/models.yaml, not from agents.yaml, so that the cost
     # panel and the LLM assignment always read the same source.
 
     def engineering_lead(self) -> Agent:
-        """The manager. Deliberately NOT an ``@agent`` — see the class docstring."""
-        return Agent(
-            config=self.agents_config['engineering_lead'],
-            verbose=True,
-            llm=llm_for('engineering_lead'),
-            allow_delegation=True,
-            max_iter=MANAGER_MAX_ITER,
-            max_execution_time=MANAGER_TIME_LIMIT,
-        )
+        """The lead. Deliberately NOT an ``@agent`` — see the class docstring.
+
+        Memoised by hand, because the ``@agent`` decorator that memoises the others
+        would also add it to ``self.agents``, which hierarchical rejects.
+        """
+        if self._lead is None:
+            self._lead = Agent(
+                config=self.agents_config['engineering_lead'],
+                verbose=True,
+                llm=llm_for('engineering_lead'),
+                # Delegation is the manager's job in hierarchical. In sequential it is
+                # just an expensive way to reach an agent the pipeline reaches anyway.
+                allow_delegation=self.is_hierarchical,
+                max_iter=MANAGER_MAX_ITER,
+                max_execution_time=MANAGER_TIME_LIMIT,
+            )
+        return self._lead
 
     # Specialists never delegate. Without this the manager can delegate to an engineer
     # that delegates back, and the crew spends real money going in circles.
@@ -132,6 +182,7 @@ class EngineeringTeam():
     def design_task(self) -> Task:
         return Task(
             config=self.tasks_config['design_task'],
+            agent=self._owner(self.engineering_lead),
             output_file=self._artifact("design.md"),
         )
 
@@ -139,18 +190,21 @@ class EngineeringTeam():
     def code_task(self) -> Task:
         return Task(
             config=self.tasks_config['code_task'],
+            agent=self._owner(self.backend_engineer),
         )
 
     @task
     def frontend_task(self) -> Task:
         return Task(
             config=self.tasks_config['frontend_task'],
+            agent=self._owner(self.frontend_engineer),
         )
 
     @task
     def test_task(self) -> Task:
         return Task(
             config=self.tasks_config['test_task'],
+            agent=self._owner(self.test_engineer),
             output_file=self._artifact("test_summary.md"),
         )
 
@@ -159,19 +213,42 @@ class EngineeringTeam():
         """Emits a QAReport so the Phase 4 router branches on a boolean, not on prose."""
         return Task(
             config=self.tasks_config['qa_task'],
+            agent=self._owner(self.qa_inspector),
             output_pydantic=QAReport,
             output_file=self._artifact("qa_report.json"),
         )
 
     @crew
     def crew(self) -> Crew:
-        """Creates the EngineeringTeam crew."""
+        """Creates the EngineeringTeam crew in the configured process."""
+        common = {
+            "tasks": self.tasks,
+            "max_rpm": CREW_MAX_RPM,
+            "verbose": True,
+            "tracing": True,
+        }
+
+        if self.is_hierarchical:
+            return Crew(
+                agents=self.agents,  # lead excluded: CrewAI rejects it being in here
+                process=Process.hierarchical,
+                manager_agent=self.engineering_lead(),
+                **common,
+            )
+
+        # Sequential: the lead is an ordinary member that writes the design, and each
+        # task names its own owner.
+        #
+        # @CrewBase already collects any agent a task names, so the lead is usually in
+        # self.agents by the time we get here. Add it only if it is missing — appending
+        # unconditionally listed it twice.
+        agents = list(self.agents)
+        lead = self.engineering_lead()
+        if not any(existing is lead for existing in agents):
+            agents.insert(0, lead)
+
         return Crew(
-            agents=self.agents,  # manager excluded: CrewAI rejects it being in here
-            tasks=self.tasks,
-            process=Process.hierarchical,
-            manager_agent=self.engineering_lead(),
-            max_rpm=CREW_MAX_RPM,
-            verbose=True,
-            tracing=True,
+            agents=agents,
+            process=Process.sequential,
+            **common,
         )

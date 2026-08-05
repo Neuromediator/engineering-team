@@ -25,6 +25,7 @@ from crewai.events.event_bus import CrewAIEventsBus
 from crewai.events.types.llm_events import LLMCallCompletedEvent
 
 from engineering_team.model_config import cost_for
+from engineering_team.observability.stream import short_role
 
 
 # litellm and the various providers disagree on usage key names.
@@ -232,11 +233,11 @@ class CostListener(BaseEventListener):
 
         return LLMCall(
             model=model,
-            agent_role=(getattr(event, "agent_role", None) or UNKNOWN_AGENT)
-            .strip()
-            .splitlines()[0]
-            if getattr(event, "agent_role", None)
-            else UNKNOWN_AGENT,
+            agent_role=(
+                short_role(getattr(event, "agent_role", None))
+                if getattr(event, "agent_role", None)
+                else UNKNOWN_AGENT
+            ),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cost=cost_for(model, prompt_tokens, completion_tokens),
