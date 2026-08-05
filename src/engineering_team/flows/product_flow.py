@@ -27,6 +27,7 @@ from crewai.flow.human_feedback import human_feedback
 from crewai.flow.persistence import persist
 from pydantic import BaseModel, Field
 
+from ..budget import run_limit
 from ..capabilities import CONSTRAINTS_PROMPT
 from ..crew import EngineeringTeam
 from ..model_config import llm_for
@@ -210,6 +211,20 @@ class ProductFlow(Flow[ProductState]):
 
         if self.state.iteration >= self.state.max_iterations:
             self.state.exhausted = True
+            return "exhausted"
+
+        # Money ceiling, checked between iterations. CrewAI exposes no cancellation hook,
+        # so this cannot stop a crew mid-flight — the wall-clock caps in crew.py are what
+        # bound a single iteration. What this does prevent is spending another whole
+        # iteration once a run has already cost more than it should.
+        probe = getattr(self, "_cost_probe", None)
+        ceiling = run_limit()
+        if probe is not None and ceiling > 0 and probe() >= ceiling:
+            self.state.exhausted = True
+            self.state.revision_notes.append(
+                f"[budget] Stopped after ${probe():.2f}, over the ${ceiling:.2f} per-run "
+                f"ceiling, with blocking findings outstanding."
+            )
             return "exhausted"
 
         # Carry the blockers forward so the next build knows what to fix.

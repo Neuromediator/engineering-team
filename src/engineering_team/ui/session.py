@@ -14,6 +14,7 @@ from typing import Literal
 
 from crewai.flow.async_feedback.types import HumanFeedbackPending
 
+from .. import budget
 from ..flows import ProductFlow
 from ..observability.recorder import CostListener, RunRecorder
 from ..observability.stream import ActivityListener, RunLog
@@ -80,9 +81,17 @@ class RunSession:
         if self.is_busy:
             return
 
+        allowed, reason = budget.check_can_start()
+        if not allowed:
+            self._set(status="failed", error=reason)
+            self.log.add("run", "budget", reason)
+            return
+
         self.recorder.reset()
         self.log.reset()
         flow = ProductFlow()
+        # Lets the flow's router stop before paying for another iteration.
+        flow._cost_probe = self.recorder.total_cost
         self._set(flow=flow, status="running", error="", question="", flow_id="")
         self.log.add("run", "flow", "starting")
 
@@ -131,6 +140,9 @@ class RunSession:
                 return
 
             self.recorder.settle()
+            # Record actual spend so the daily ceiling survives a restart.
+            total = budget.record(self.recorder.total_cost())
+            self.log.add("run", "budget", f"run cost ${self.recorder.total_cost():.4f}; today ${total:.2f}")
             self.log.add("run", "flow", "finished")
             self._set(status="finished")
 

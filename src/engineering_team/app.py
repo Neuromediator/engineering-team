@@ -15,6 +15,7 @@ import engineering_team.patch  # noqa: F401 — applies the CrewAI MCP monkey-pa
 
 import gradio as gr
 
+from engineering_team import budget
 from engineering_team.capabilities import CAPABILITIES_MD
 from engineering_team.model_config import models, price_for
 from engineering_team.preflight import run_all
@@ -290,6 +291,7 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting, label=snapshot["question"] or "Your feedback"),
             gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
+            f"_{budget.status_line()}_",
         )
 
     def start(requirements: str):
@@ -346,6 +348,7 @@ def build_ui() -> gr.Blocks:
                 )
                 gr.Markdown("### Cost")
                 cost_box = gr.Markdown("_No LLM calls yet._", elem_id="cost_panel")
+                budget_box = gr.Markdown(f"_{budget.status_line()}_")
 
         with gr.Accordion("Models and pricing", open=False):
             gr.Markdown(_model_table(), elem_id="models_panel")
@@ -370,7 +373,7 @@ def build_ui() -> gr.Blocks:
 
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
-            feedback_box, feedback_button, run_button,
+            feedback_box, feedback_button, run_button, budget_box,
         ]
 
         run_button.click(start, inputs=requirements, outputs=outputs)
