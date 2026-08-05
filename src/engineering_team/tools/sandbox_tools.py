@@ -1,5 +1,6 @@
 from crewai.tools import tool
 from pathlib import Path
+import os
 import shutil
 import subprocess
 
@@ -7,11 +8,64 @@ import subprocess
 SANDBOX_DIR = Path(__file__).parents[3] / "sandbox"
 SANDBOX_DIR.mkdir(parents=True, exist_ok=True)
 
+RUNNER_IMAGE = "ghcr.io/astral-sh/uv:python3.13-bookworm-slim"
+
+
+def _container_user() -> list[str]:
+    """Run containers as the host user so the sandbox stays deletable.
+
+    Docker defaults to root, and anything it writes into a bind mount is owned by root
+    on the host. The next `reset_sandbox()` then fails with EPERM trying to remove files
+    it does not own — which is exactly how a run once died before spending a cent.
+    """
+    if os.name != "posix":
+        return []
+    return ["--user", f"{os.getuid()}:{os.getgid()}"]
+
+
+# uv wants a writable HOME and cache. As a non-root user the image's default HOME is not
+# writable, so point both somewhere that always is, and keep them out of the bind mount
+# so they never show up as files the agents think they wrote.
+_CONTAINER_ENV = [
+    "-e", "HOME=/tmp",
+    "-e", "UV_CACHE_DIR=/tmp/uv-cache",
+    # The cache and the bind-mounted project are on different filesystems, so uv cannot
+    # hardlink between them and warns on every run. Agents read that warning as an error
+    # and try to "fix" it, so state the intent instead of paying for the confusion.
+    "-e", "UV_LINK_MODE=copy",
+]
+
+
+def _force_remove_sandbox() -> None:
+    """Remove the sandbox, falling back to root-in-a-container for root-owned leftovers."""
+    try:
+        shutil.rmtree(SANDBOX_DIR)
+        return
+    except FileNotFoundError:
+        return
+    except PermissionError:
+        pass
+
+    # Files a previous root container left behind. Borrow root the same way they were
+    # created: mount the parent and delete from inside.
+    subprocess.run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{SANDBOX_DIR.parent}:/parent",
+            "busybox:latest",
+            "rm", "-rf", f"/parent/{SANDBOX_DIR.name}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+
 
 def reset_sandbox() -> None:
     """Wipe the sandbox and re-initialize it as a fresh uv project with gradio."""
     if SANDBOX_DIR.exists():
-        shutil.rmtree(SANDBOX_DIR)
+        _force_remove_sandbox()
     SANDBOX_DIR.mkdir(parents=True)
 
     subprocess.run(["uv", "init", "--bare", "--python", "3.13"], cwd=SANDBOX_DIR, check=True)
@@ -106,9 +160,11 @@ def run_sandbox_python(filename: str) -> str:
         result = subprocess.run(
             [
                 "docker", "run", "--rm",
+                *_container_user(),
+                *_CONTAINER_ENV,
                 "-v", f"{SANDBOX_DIR}:/workspace",
                 "-w", "/workspace",
-                "ghcr.io/astral-sh/uv:python3.13-bookworm-slim",
+                RUNNER_IMAGE,
                 "uv", "run", filename,
             ],
             capture_output=True,
