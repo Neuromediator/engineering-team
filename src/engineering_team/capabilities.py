@@ -24,7 +24,7 @@ tests — written, executed and reviewed in an isolated sandbox.
 | Packages | any from PyPI; the crew installs what it needs |
 | Tests | stdlib `unittest` |
 | Layout | one flat directory, no sub-packages |
-| Persistence | in-memory only; nothing survives the run |
+| Persistence | files in the sandbox (`sqlite3`, JSON) survive an app restart, but the sandbox itself is discarded when a new build starts |
 
 **Not supported:** JavaScript/React or any non-Python stack, long-running servers or
 background workers, real databases, calls to external services needing credentials, or
