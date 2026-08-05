@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from ..crew import EngineeringTeam
 from ..model_config import llm_for
 from ..schemas import QAReport
-from ..tools.sandbox_tools import reset_sandbox
+from ..tools.sandbox_tools import SANDBOX_ROOT, Sandbox, new_run_id
 from ..ui.feedback_provider import PendingUIFeedbackProvider
 
 
@@ -55,6 +55,10 @@ class ProductState(BaseModel):
     requirements: str = ""
     iteration: int = 0
     max_iterations: int = MAX_AUTO_ITERATIONS
+
+    # This run's own sandbox. Kept in state so a flow resumed from a checkpoint returns
+    # to the same directory instead of starting a fresh one and losing the build.
+    run_id: str = ""
 
     qa_report: QAReport | None = None
     history: list[IterationRecord] = Field(default_factory=list)
@@ -117,19 +121,27 @@ class ProductFlow(Flow[ProductState]):
         self.state.exhausted = False
         self.state.max_iterations = self.state.iteration + MAX_AUTO_ITERATIONS
 
+    def sandbox(self) -> Sandbox:
+        """This run's sandbox, created on first use and stable across resumes."""
+        if not self.state.run_id:
+            self.state.run_id = new_run_id()
+        return Sandbox(SANDBOX_ROOT / self.state.run_id)
+
     @start("revise")
     def build(self) -> str:
         """Run the hierarchical crew. Re-entered on "revise" with feedback in state."""
         self._absorb_human_feedback()
         self.state.iteration += 1
 
+        sandbox = self.sandbox()
+
         # Only wipe the sandbox on the first attempt. A revision is meant to *fix* the
         # existing code — resetting here would throw away the work being corrected and
         # make every iteration start from nothing.
         if self.state.iteration == 1:
-            reset_sandbox()
+            sandbox.reset()
 
-        result = EngineeringTeam().crew().kickoff(
+        result = EngineeringTeam(sandbox=sandbox).crew().kickoff(
             inputs={
                 "requirements": self.state.requirements,
                 "revision_notes": self.state.notes_for_prompt(),

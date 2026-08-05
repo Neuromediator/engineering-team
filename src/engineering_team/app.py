@@ -80,6 +80,7 @@ def _progress(snapshot: dict) -> str:
 
     lines = [
         f"**Iteration {state.iteration} of {state.max_iterations}**",
+        f"Sandbox: `sandbox/{state.run_id}`" if state.run_id else "",
         "",
     ]
     for record in state.history:

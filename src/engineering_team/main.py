@@ -9,7 +9,7 @@ from engineering_team.flows import ProductFlow
 from engineering_team.model_config import models
 from engineering_team.observability.recorder import CostListener, RunRecorder
 from engineering_team.preflight import assert_ready
-from .tools.sandbox_tools import reset_sandbox
+from .tools.sandbox_tools import SANDBOX_ROOT, Sandbox
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
@@ -69,7 +69,8 @@ def run():
     _report(recorder)
 
     state = flow.state
-    print(f"\nIterations: {state.iteration} of {state.max_iterations}")
+    print(f"\nSandbox: {SANDBOX_ROOT / state.run_id}")
+    print(f"Iterations: {state.iteration} of {state.max_iterations}")
     for record in state.history:
         mark = "PASS" if record.passed else "FAIL"
         print(f"  [{mark}] iteration {record.iteration}: {record.summary}")
@@ -87,9 +88,12 @@ def run_once():
     """
     recorder = _announce()
 
+    sandbox = Sandbox()
+    print(f"Sandbox: {sandbox.root}")
+
     try:
-        reset_sandbox()
-        EngineeringTeam().crew().kickoff(
+        sandbox.reset()
+        EngineeringTeam(sandbox=sandbox).crew().kickoff(
             inputs={
                 "requirements": requirements,
                 "revision_notes": "None - this is the first attempt.",
