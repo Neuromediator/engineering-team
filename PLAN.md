@@ -74,6 +74,37 @@ Lesson worth keeping: price claims from blogs and search results were wrong for 
 four models. `python -m engineering_team.model_config --check` re-verifies every committed
 price against the live catalogue.
 
+#### Measured, 2026-08-05 (budget profile, sequential, reference requirements)
+
+| Agent | Model | calls | in | out | USD |
+|---|---|---|---|---|---|
+| Frontend | `kimi-k2.6` | 9 | 170,937 | 20,072 | **0.1505** |
+| Engineering Lead | `glm-5.2` | 5 | 16,714 | 6,797 | 0.0292 |
+| Backend | `v4-flash-0731` | 14 | 227,851 | 21,275 | 0.0243 |
+| Test | `v4-flash-0731` | 9 | 179,244 | 5,018 | 0.0170 |
+| **TOTAL** | | 37 | 594,746 | 53,162 | **0.2210** |
+
+**~18× cheaper than the ~$4 baseline**, and the output is real: all 51 generated tests
+pass, `app.py` compiles and `_validate.py` confirms the Gradio `Blocks` builds.
+
+#### What this measurement invalidates
+
+The **frontend gets the strong model** decision does not survive contact with data. It is
+68% of total spend, while the backend engineer processed *more* input tokens for one sixth
+the cost. The rationale was that frontend output is the least verifiable — but `_validate.py`
+only asserts the `Blocks` object constructs, and the backend's "safety net" is tests written
+by the same cheap model, so neither half of that argument is as strong as claimed. Moving
+frontend to V4 Flash projects to ~$0.09 (−60%).
+
+The **manager model choice is not settled either**, but for the opposite reason: at 5 calls
+it is only 13% of spend *because the crew is still sequential*. Hierarchical (Phase 3) makes
+the manager re-reason per delegation, so this must be re-measured before judging. Honest
+provenance: `glm-5.2` came from anchoring on the GLM family in a weakly-sourced draft and
+then optimizing within it; the ~129 tool-capable models with ≥128k context in that price band
+were never enumerated, and `deepseek/deepseek-v4-pro` ($0.435/$0.870, same 1M context) beats
+it on both axes. **No capability benchmarks were run for any role** — the prices are verified,
+the quality rankings are not. Phase 6's variant racing is what turns these into measurements.
+
 ### Stack decisions
 
 - **Gradio 6** — already the sandbox's only dependency, deploys to HF Spaces in one push, and
@@ -87,7 +118,7 @@ price against the live catalogue.
 | # | Phase | Status |
 |---|---|---|
 | 0 | Upgrade & de-risk — git init, crewai 1.15.10, rewrite `patch.py`, smoke test | **done** |
-| 1 | Cost floor — all roles onto OpenRouter via `config/models.yaml` | next |
+| 1 | Cost floor — all roles onto OpenRouter via `config/models.yaml` | **done** |
 | 2 | Sandbox abstraction — `SandboxBackend` protocol, Docker + E2B, per-run isolation | |
 | 3 | Hierarchical + new roles — `manager_agent`, PO and QA crews with Pydantic outputs | |
 | 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | |

@@ -14,8 +14,26 @@
 default_profile: budget
 
 profiles:
-  # Target profile. The manager keeps a capable model because weak managers delegate
-  # badly, which costs more than it saves; the workers do not need one.
+  # Target profile. Measured at $0.2210 for the reference requirements (sequential,
+  # 2026-08-05) against ~$4 on `premium` — but two of these picks are unverified
+  # hypotheses, not findings, and are recorded as such:
+  #
+  # - `engineering_lead` was chosen by anchoring on the GLM family in an early draft
+  #   and then optimizing within it (5 -> 5.2, cheaper and larger context). The wider
+  #   candidate set was never enumerated: OpenRouter lists ~129 tool-capable models
+  #   with >=128k context in this price band, and glm-5.2 sits in the upper third.
+  #   `deepseek/deepseek-v4-pro` ($0.435/$0.870, same 1M context) is the leading
+  #   untested challenger. Manager cost is dominated by INPUT tokens, because the
+  #   context is re-sent on every delegation. Re-measure after Phase 3: at $0.0292
+  #   over 5 calls, sequential badly understates this role.
+  #
+  # - `frontend_engineer` gets the expensive model on the theory that its output is
+  #   the least verifiable (tests cover the backend module, not the UI). The measured
+  #   run makes this the single largest line item: $0.1505, 68% of total spend, versus
+  #   $0.0243 for the backend engineer on MORE input tokens. Unresolved.
+  #
+  # No capability benchmarks were run for any of these. Prices are verified; quality
+  # rankings are not. See task #8.
   budget:
     engineering_lead: openrouter/z-ai/glm-5.2
     backend_engineer: openrouter/deepseek/deepseek-v4-flash-0731
