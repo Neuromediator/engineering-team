@@ -112,13 +112,22 @@ class RunSession:
     def _spawn(self, work) -> None:
         def runner() -> None:
             try:
-                work()
+                result = work()
             except HumanFeedbackPending as pending:
+                # kickoff() raises when it hits a feedback point.
                 self._on_pending(pending)
                 return
             except Exception as exc:  # noqa: BLE001 - surfaced to the UI, not swallowed
                 self.log.add("run", "flow", f"FAILED: {exc}")
                 self._set(status="failed", error=traceback.format_exc())
+                return
+
+            # resume() does NOT raise on a second pause — it *returns* the pending
+            # object. Without this branch a multi-round conversation would report
+            # "finished" the moment the flow asked its second question, which is the
+            # whole point of the feature.
+            if isinstance(result, HumanFeedbackPending):
+                self._on_pending(result)
                 return
 
             self.recorder.settle()

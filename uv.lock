@@ -11,7 +11,6 @@ resolution-markers = [
 members = [
     "engineering-team",
     "sandbox",
-    "verify-docker",
 ]
 
 [[package]]
@@ -2711,17 +2710,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/53/8369e5219a5855869bcee5f4d317f6da0e2c669aecf0ef7d371e3d084449/uvloop-0.22.1-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:bc5ef13bbc10b5335792360623cc378d52d7e62c2de64660616478c32cd0598e", size = 4119472, upload-time = "2025-10-16T22:16:41.694Z" },
     { url = "https://files.pythonhosted.org/packages/f8/ba/d69adbe699b768f6b29a5eec7b47dd610bd17a69de51b251126a801369ea/uvloop-0.22.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:1f38ec5e3f18c8a10ded09742f7fb8de0108796eb673f30ce7762ce1b8550cad", size = 4239051, upload-time = "2025-10-16T22:16:43.224Z" },
 ]
-
-[[package]]
-name = "verify-docker"
-version = "0.1.0"
-source = { virtual = "sandbox/verify_docker" }
-dependencies = [
-    { name = "gradio" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "gradio", specifier = ">=6.22.0" }]
 
 [[package]]
 name = "watchfiles"
