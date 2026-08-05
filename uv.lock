@@ -9,9 +9,21 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "709d1ef9a12d",
     "engineering-team",
     "sandbox",
 ]
+
+[[package]]
+name = "709d1ef9a12d"
+version = "0.1.0"
+source = { virtual = "sandbox/709d1ef9a12d" }
+dependencies = [
+    { name = "gradio" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "gradio", specifier = ">=6.22.0" }]
 
 [[package]]
 name = "aiofiles"

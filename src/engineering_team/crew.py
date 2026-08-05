@@ -10,9 +10,22 @@ from .tools.sandbox_tools import Sandbox
 # Bounds on the hierarchical loop. The manager re-reasons on every delegation, so an
 # unbounded manager is an unbounded bill. These are the cost ceiling, and they are the
 # reason hierarchical is safe to demo.
-MANAGER_MAX_ITER = 30
-WORKER_MAX_ITER = 20
-CREW_MAX_RPM = 30
+#
+# Tightened after a tip-calculator run spent 40 minutes writing throwaway verification
+# scripts (`_check.py`, `_check2.py`, `_runner.py`, `manual_check.py`) with a 22-minute
+# stretch that produced no files at all. Iteration counts alone did not stop it, because
+# an agent can burn unbounded *time* inside a single iteration.
+MANAGER_MAX_ITER = 12
+WORKER_MAX_ITER = 15
+
+# The bound that was missing entirely. Seconds of wall clock per agent execution; the
+# agent is stopped when it expires instead of thinking indefinitely.
+MANAGER_TIME_LIMIT = 900
+WORKER_TIME_LIMIT = 420
+
+# 30 was throttling without protecting anything — OpenRouter is nowhere near that limit,
+# and the sleeps just stretched the run.
+CREW_MAX_RPM = 120
 
 
 @CrewBase
@@ -52,6 +65,7 @@ class EngineeringTeam():
             llm=llm_for('engineering_lead'),
             allow_delegation=True,
             max_iter=MANAGER_MAX_ITER,
+            max_execution_time=MANAGER_TIME_LIMIT,
         )
 
     # Specialists never delegate. Without this the manager can delegate to an engineer
@@ -66,6 +80,7 @@ class EngineeringTeam():
             tools=self.sandbox.tools(),
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
+            max_execution_time=WORKER_TIME_LIMIT,
         )
 
     @agent
@@ -78,6 +93,7 @@ class EngineeringTeam():
             mcps=["https://mcp.context7.com/mcp"],
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
+            max_execution_time=WORKER_TIME_LIMIT,
         )
 
     @agent
@@ -89,6 +105,7 @@ class EngineeringTeam():
             tools=self.sandbox.tools(),
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
+            max_execution_time=WORKER_TIME_LIMIT,
         )
 
     @agent
@@ -101,12 +118,21 @@ class EngineeringTeam():
             tools=self.sandbox.tools(),
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
+            max_execution_time=WORKER_TIME_LIMIT,
         )
+
+    # Output files are set here, not in tasks.yaml, because they must land inside
+    # *this run's* sandbox. A static `output_file: sandbox/design.md` in the YAML
+    # resolves against the working directory, so every concurrent run would write
+    # over the same three files — which defeats per-run isolation.
+    def _artifact(self, name: str) -> str:
+        return str(self.sandbox.root / name)
 
     @task
     def design_task(self) -> Task:
         return Task(
-            config=self.tasks_config['design_task']
+            config=self.tasks_config['design_task'],
+            output_file=self._artifact("design.md"),
         )
 
     @task
@@ -125,6 +151,7 @@ class EngineeringTeam():
     def test_task(self) -> Task:
         return Task(
             config=self.tasks_config['test_task'],
+            output_file=self._artifact("test_summary.md"),
         )
 
     @task
@@ -133,6 +160,7 @@ class EngineeringTeam():
         return Task(
             config=self.tasks_config['qa_task'],
             output_pydantic=QAReport,
+            output_file=self._artifact("qa_report.json"),
         )
 
     @crew

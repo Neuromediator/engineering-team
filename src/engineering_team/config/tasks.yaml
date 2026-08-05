@@ -22,7 +22,6 @@ design_task:
   expected_output: >
     A detailed design to achieve the requirements, identifying code structure and the work
     each engineer needs to do.
-  output_file: sandbox/design.md
 
 code_task:
   description: >
@@ -58,7 +57,6 @@ frontend_task:
     A gradio UI in module app.py written to the sandbox that demonstrates the functionality,
     ready to run as-is in the same sandbox directory as the backend code.
   context:
-    - code_task
     - design_task
 
 test_task:
@@ -77,9 +75,7 @@ test_task:
     A single test file that can be run to test the backend module, plus a summary of the
     results of running it.
   context:
-    - code_task
     - design_task
-  output_file: sandbox/test_summary.md
 
 qa_task:
   description: >
@@ -100,8 +96,4 @@ qa_task:
     with severity, file, summary, detail and the requirement each traces to, plus
     `tests_run` and `tests_passed` reflecting what was actually executed.
   context:
-    - code_task
-    - frontend_task
-    - test_task
     - design_task
-  output_file: sandbox/qa_report.json

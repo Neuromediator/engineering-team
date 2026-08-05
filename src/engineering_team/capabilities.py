@@ -49,4 +49,17 @@ Environment and constraints:
   Where the requirements imply stored data, hold it in memory.
 - Nothing may block: no servers, no `.launch()` in code that gets executed, no `input()`,
   no infinite loops. Anything that blocks will be killed and reported as a failure.
+
+File discipline — the deliverable is exactly these files, and no others:
+- one backend module, `app.py` for the Gradio UI, one test file, and `_validate.py`
+  which imports app.py and checks the Blocks constructs.
+- Do NOT create extra scratch or verification scripts. If you need to check something,
+  put the check in the existing test file and run that, or overwrite `_validate.py`.
+  Files named like `_check.py`, `_check2.py`, `_runner.py`, `manual_check.py` or
+  `edge_cases.py` are a sign of going in circles — write the assertion into the test
+  file instead, where it stays useful.
+- Reuse the same filenames. Two files testing the same module means neither is the
+  test suite.
+- When the tests pass and the UI validates, you are done. Stop and report; do not keep
+  looking for more things to verify.
 """
