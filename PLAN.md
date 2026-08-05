@@ -121,6 +121,35 @@ Lesson worth keeping: price claims from blogs and search results were wrong for 
 models on the first pass. `python -m engineering_team.model_config --check` re-verifies every
 committed price against the live catalogue.
 
+#### Measured again, 2026-08-05 — hierarchical + QA, full flow
+
+| Agent | Model | calls | in | out | USD |
+|---|---|---|---|---|---|
+| Frontend | `minimax-m3` | 38 | 698,325 | 31,160 | **0.2469** |
+| Engineering Lead (manager) | `deepseek-v4-pro` | 23 | 352,998 | 39,241 | 0.1877 |
+| QA Inspector | `deepseek-v4-pro` | 13 | 111,042 | 20,506 | 0.0661 |
+| Backend | `deepseek-v4-flash-0731` | 19 | 115,298 | 10,783 | 0.0123 |
+| Test | `deepseek-v4-flash-0731` | 9 | 43,965 | 12,943 | 0.0063 |
+| **TOTAL** | | **102** | **1,321,628** | **114,633** | **0.5193** |
+
+Approved on the first iteration: 32 generated tests passing, all 9 requirements checked
+individually by an inspector that ran the tests itself, three findings — two minor, one nit —
+none blocking. Still ~8× cheaper than the ~$4 original. Preserved in
+`examples/trading_account_manager_hierarchical/`.
+
+**Hierarchical costs 2.35× sequential** ($0.5193 vs $0.2210) — the manager re-reasoning per
+delegation plus a fifth agent. Expected direction, now quantified.
+
+**The manager line settles the question left open earlier.** The same role went from $0.0292
+sequential to **$0.1877 hierarchical — 6.4×**. The sequential measurement understated it by
+that much, which is precisely why that seat's model was re-decided on evidence rather than
+left alone. On `glm-5.2` ($0.76/$2.42 vs $0.435/$0.870) the lead alone would have cost about
+$0.36 instead of $0.19; the frontend on `kimi-k2.6` would have pushed the run to roughly $0.76.
+
+**What this run does not prove:** QA passed first time, so the `revise` branch never fired
+live; the CLI disables pausing, so the human pause/resume round trip is unexercised; and the
+race supervisor is verified only against synthetic results.
+
 ### Stack decisions
 
 - **Gradio 6** — already the sandbox's only dependency, deploys to HF Spaces in one push, and
