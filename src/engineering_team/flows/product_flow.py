@@ -70,6 +70,13 @@ class ProductState(BaseModel):
     # revision_notes, so a resumed build cannot apply the same feedback twice.
     feedback_seen: int = 0
 
+    # Per-flow token totals, summed from each crew result. The global cost recorder listens
+    # on a shared event bus and cannot tell concurrent flows apart, so when several runs
+    # race each other this is the only per-run accounting that is actually attributable.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    llm_calls: int = 0
+
     approved: bool = False
     exhausted: bool = False
     shipped: bool = False
@@ -147,6 +154,12 @@ class ProductFlow(Flow[ProductState]):
                 "revision_notes": self.state.notes_for_prompt(),
             }
         )
+
+        usage = getattr(result, "token_usage", None)
+        if usage is not None:
+            self.state.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            self.state.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+            self.state.llm_calls += getattr(usage, "successful_requests", 0) or 0
 
         report = _extract_report(result)
         self.state.qa_report = report

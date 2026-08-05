@@ -139,9 +139,9 @@ committed price against the live catalogue.
 | 3 | Hierarchical + QA Inspector — `manager_agent`, `QAReport` Pydantic verdict | **done** |
 | 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | **done** |
 | 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | **done** |
-| 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | next |
-| 7 | Parallel supervisor — variant racing + comparison view | |
-| 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | |
+| 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | **done** |
+| 7 | Parallel supervisor — variant racing + ranking | **done** |
+| 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | next |
 | 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |
 | 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
 
@@ -168,6 +168,45 @@ The two things originally bundled into this phase moved out to where they belong
 per-run `sandbox/<run_id>/` isolation is phase 6, because nothing needs it until runs are
 concurrent; the `SandboxBackend` protocol and E2B backend are phase 8, because a protocol
 designed before its second implementation exists is a guess.
+
+### Phases 6 and 7 notes (complete)
+
+**Per-run sandboxes.** Every run works in `sandbox/<run_id>/`. Tools are bound to a
+`Sandbox` instance rather than reading a module global — the alternative, a thread-local or
+context variable holding "the current sandbox", would depend on CrewAI's context propagation
+across the pools it runs agent steps on, which is not guaranteed. Binding at construction
+removes the question. `EngineeringTeam` takes the sandbox by injection; every agent in a crew
+shares one instance, which is how they see each other's files. `run_id` lives in
+`ProductState`, so a flow resumed from a checkpoint returns to the same directory.
+
+This phase also fixed a bug that killed the first end-to-end run before it spent a cent:
+Docker defaults to root, so everything a container wrote into the bind mount was root-owned
+and the host user could not delete it on the next run. Containers now run as
+`--user $(id -u):$(id -g)`, with uv's HOME and cache pointed at `/tmp` so they stay out of
+the bind mount. `reset` keeps a root-container fallback for leftovers from before the change.
+
+**Racing.** `uv run race [n]` runs N `ProductFlow`s concurrently via `kickoff_async` +
+`asyncio.gather`, bounded by a semaphore, then ranks them.
+
+Two decisions worth defending:
+
+- *Racing whole attempts, not parallelising engineers.* The frontend imports the backend and
+  the tests test it, so those steps are genuinely sequential; running them concurrently would
+  be three agents guessing at each other's interfaces. The parallelism that actually exists
+  in this problem is between independent attempts.
+- *Arithmetic ranking, no LLM judge.* Every input is already structured — `QAReport.verdict()`,
+  blocking-finding counts, iteration counts — so a judge would add cost and a new failure
+  mode to reproduce a sort. Order is: crashes last, then QA approval, then fewest blocking
+  findings, then fewest iterations, then fewest tokens. Cheaper only wins between otherwise
+  equal results.
+
+Per-variant cost needed new plumbing: the global cost recorder listens on a shared event bus
+and cannot tell concurrent flows apart. `ProductState` therefore accumulates `token_usage`
+from each crew result, which *is* attributable per flow. The dollar total for the race as a
+whole still comes from the recorder.
+
+A race multiplies spend, so `variants` is an explicit argument and the per-variant iteration
+cap is tightened to 2.
 
 ### Phase 5 notes (complete)
 

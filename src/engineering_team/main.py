@@ -5,7 +5,7 @@ from datetime import datetime
 
 import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch on import
 from engineering_team.crew import EngineeringTeam
-from engineering_team.flows import ProductFlow
+from engineering_team.flows import ProductFlow, race
 from engineering_team.model_config import models
 from engineering_team.observability.recorder import CostListener, RunRecorder
 from engineering_team.preflight import assert_ready
@@ -78,6 +78,26 @@ def run():
         print("\nNot approved. Outstanding revision notes:")
         for note in state.revision_notes:
             print(f"  - {note}")
+
+
+def run_race():
+    """Race several independent attempts at the same requirements and rank them.
+
+    Usage: `uv run race [variants]`. Cost scales with the number of variants, so it is
+    an explicit argument rather than a default that surprises anyone.
+    """
+    variants = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    recorder = _announce()
+    print(f"\nRacing {variants} variants — cost scales with this number.\n")
+
+    try:
+        outcome = race(requirements, variants=variants)
+    except Exception as e:
+        _report(recorder)
+        raise Exception(f"An error occurred while racing: {e}")
+
+    _report(recorder)
+    print(outcome.summary())
 
 
 def run_once():
