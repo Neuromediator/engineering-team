@@ -3,10 +3,6 @@
 One file drives both which model each role calls and what that model costs, so the
 observability panel can never report prices for a model the crew is not actually using.
 
-Select a profile with the ``MODEL_PROFILE`` environment variable::
-
-    MODEL_PROFILE=premium uv run run_crew
-
 Verify the committed prices against OpenRouter's live catalogue::
 
     uv run python -m engineering_team.model_config --check
@@ -14,7 +10,6 @@ Verify the committed prices against OpenRouter's live catalogue::
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -59,42 +54,23 @@ def _raw_config() -> dict[str, Any]:
         return yaml.safe_load(handle)
 
 
-def active_profile_name() -> str:
-    """Return the profile named by MODEL_PROFILE, or the configured default."""
-    return os.environ.get("MODEL_PROFILE") or _raw_config()["default_profile"]
+def models() -> dict[str, str]:
+    """Return the role-to-model mapping."""
+    return dict(_raw_config()["models"])
 
 
-def profile(name: str | None = None) -> dict[str, str]:
-    """Return the role-to-model mapping for a profile.
-
-    Args:
-        name: Profile name. Defaults to :func:`active_profile_name`.
-
-    Raises:
-        KeyError: If the profile is not defined in ``models.yaml``.
-    """
-    profiles = _raw_config()["profiles"]
-    key = name or active_profile_name()
-    if key not in profiles:
-        raise KeyError(
-            f"Unknown model profile {key!r}. Available: {sorted(profiles)}"
-        )
-    return dict(profiles[key])
-
-
-def llm_for(role: str, name: str | None = None) -> str:
+def llm_for(role: str) -> str:
     """Return the model string configured for an agent role.
 
     Raises:
-        KeyError: If the role has no model in the selected profile.
+        KeyError: If the role has no model configured.
     """
-    models = profile(name)
-    if role not in models:
+    configured = models()
+    if role not in configured:
         raise KeyError(
-            f"No model configured for role {role!r} in profile "
-            f"{name or active_profile_name()!r}. Have: {sorted(models)}"
+            f"No model configured for role {role!r}. Have: {sorted(configured)}"
         )
-    return models[role]
+    return configured[role]
 
 
 @lru_cache(maxsize=1)
@@ -156,11 +132,10 @@ def _check() -> int:
         else:
             print(f"  ok       {model}: {price.input}/{price.output}")
 
-    for name in sorted(_raw_config()["profiles"]):
-        for role, model in sorted(profile(name).items()):
-            if price_for(model) is None:
-                print(f"  NO PRICE {name}.{role}: {model}")
-                problems += 1
+    for role, model in sorted(models().items()):
+        if price_for(model) is None:
+            print(f"  NO PRICE {role}: {model}")
+            problems += 1
 
     print(f"\n{problems} problem(s)")
     return 1 if problems else 0
@@ -171,8 +146,7 @@ if __name__ == "__main__":
 
     if "--check" in sys.argv:
         raise SystemExit(_check())
-    print(f"active profile: {active_profile_name()}")
-    for role, model in sorted(profile().items()):
+    for role, model in sorted(models().items()):
         price = price_for(model)
         detail = f"${price.input}/${price.output} per M" if price else "no price"
         print(f"  {role:20} {model:46} {detail}")

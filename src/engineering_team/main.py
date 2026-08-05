@@ -5,7 +5,7 @@ from datetime import datetime
 
 import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch on import
 from engineering_team.crew import EngineeringTeam
-from engineering_team.model_config import active_profile_name, profile
+from engineering_team.model_config import models
 from engineering_team.observability.recorder import CostListener, RunRecorder
 from engineering_team.preflight import assert_ready
 from .tools.sandbox_tools import reset_sandbox
@@ -42,9 +42,8 @@ def run():
     # full price while producing code nobody verified.
     assert_ready()
 
-    profile_name = active_profile_name()
-    print(f"\nModel profile: {profile_name}")
-    for role, model in sorted(profile().items()):
+    print("\nModels:")
+    for role, model in sorted(models().items()):
         print(f"  {role:20} {model}")
 
     recorder = RunRecorder()

@@ -23,7 +23,7 @@ from engineering_team.observability.recorder import (  # noqa: E402
 
 
 FLASH = "openrouter/deepseek/deepseek-v4-flash-0731"  # $0.09 / $0.18 per M
-GLM = "openrouter/z-ai/glm-5.2"  # $0.76 / $2.42 per M
+PRO = "openrouter/deepseek/deepseek-v4-pro"  # $0.435 / $0.870 per M
 
 
 def _event(model=FLASH, agent_role="Backend Engineer", usage=None):
@@ -93,11 +93,11 @@ class CostAggregationTest(unittest.TestCase):
 
     def test_grouping_by_model(self):
         _record(self.recorder, model=FLASH)
-        _record(self.recorder, model=GLM)
+        _record(self.recorder, model=PRO)
 
         by_model = self.recorder.by_model()
-        self.assertEqual(set(by_model), {FLASH, GLM})
-        self.assertGreater(by_model[GLM].cost, by_model[FLASH].cost)
+        self.assertEqual(set(by_model), {FLASH, PRO})
+        self.assertGreater(by_model[PRO].cost, by_model[FLASH].cost)
 
     def test_reset_clears_state(self):
         _record(self.recorder)
@@ -141,12 +141,12 @@ class SummaryRenderingTest(unittest.TestCase):
 
     def test_summary_includes_agents_models_and_total(self):
         recorder = RunRecorder()
-        _record(recorder, model=GLM, agent_role="Engineering Lead")
+        _record(recorder, model=PRO, agent_role="Engineering Lead")
         _record(recorder, model=FLASH, agent_role="Backend Engineer")
 
         summary = recorder.summary()
         self.assertIn("Engineering Lead", summary)
-        self.assertIn(GLM, summary)
+        self.assertIn(PRO, summary)
         self.assertIn("TOTAL", summary)
 
 

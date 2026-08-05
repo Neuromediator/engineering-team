@@ -22,8 +22,7 @@ class EngineeringTeam():
     # https://docs.crewai.com/concepts/agents#agent-tools
 
     # Models come from config/models.yaml, not from agents.yaml, so that the cost
-    # panel and the LLM assignment always read the same source. Switch with
-    # MODEL_PROFILE=budget|minimal|premium.
+    # panel and the LLM assignment always read the same source.
 
     @agent
     def engineering_lead(self) -> Agent:

@@ -48,62 +48,62 @@ circular delegation.
 
 ### Models
 
-`config/models.yaml` holds role→model mapping *and* per-model pricing, so the cost panel and the
-LLM assignment cannot drift apart.
+`config/models.yaml` holds role→model mapping *and* per-model pricing, so the cost panel and
+the LLM assignment cannot drift apart. **Three models, fixed** — no profile matrix, because
+comparing configurations is not what this project is demonstrating.
 
-Current `budget` profile, every price verified against OpenRouter's live catalogue:
+| Role | Model | $/M in | $/M out | ctx |
+|---|---|---|---|---|
+| Engineering Lead (manager) | `deepseek/deepseek-v4-pro` | 0.435 | 0.870 | 1M |
+| Backend / Test | `deepseek/deepseek-v4-flash-0731` | 0.09 | 0.18 | 1M |
+| Frontend | `minimax/minimax-m3` | 0.30 | 1.20 | 1M |
 
-| Role | Model | $/M in | $/M out |
-|---|---|---|---|
-| Engineering Lead (manager) | `openrouter/z-ai/glm-5.2` | 0.76 | 2.42 |
-| Backend / Test | `openrouter/deepseek/deepseek-v4-flash-0731` | 0.09 | 0.18 |
-| Frontend | `openrouter/moonshotai/kimi-k2.6` | 0.589 | 2.48 |
+**Manager — V4 Pro.** Manager cost is dominated by *input* tokens: it re-sends accumulated
+context on every delegation, so context size and input price are the levers. 80.6% SWE-bench
+Verified, the strongest open-weights score.
 
-These differ from the models first proposed, because the originals came from secondary
-sources that were wrong. Querying `https://openrouter.ai/api/v1/models` directly showed:
+**Backend / Test — V4 Flash.** These roles work against a feedback loop — code runs in the
+sandbox and errors come back — so cheap mistakes are observable and recoverable. The dated
+`-0731` snapshot is pinned deliberately: 55% cheaper than the floating `deepseek-v4-flash`
+($0.14/$0.28) and reproducible over time.
 
-- `deepseek-v4-flash` is **$0.14/$0.28**; the $0.09/$0.18 rate belongs to the dated
-  `-0731` snapshot. Pinning it is 55% cheaper *and* reproducible for benchmarking.
-- `glm-5` is **$0.95/$2.55**, not $0.60/$1.92. `glm-5.2` is cheaper, newer and has 1M
-  context, so it wins on every axis.
-- `gpt-5.4-mini` is **$0.75/$4.50**, not $0.25/$2.00.
-- `kimi-k2.6` supersedes k2.5 ($0.589/$2.48 vs $0.57/$2.85); output dominates for code
-  generation.
+**Frontend — MiniMax M3**, chosen from benchmarks rather than assumption. Kimi K3 tops the
+Arena.ai Frontend Code Arena (1679 Elo, winning six of seven frontend domains, ahead of
+Claude Fable 5 at 1631 and GLM-5.2 at 1587) but costs $3/$15 — that one agent would be ~85%
+of run cost. M3 scores 80.5% SWE-bench Verified, statistically tied with V4's leading 80.6%,
+at $0.30/$1.20. It is also a different family from the DeepSeek manager and workers, so the
+UI is not written by a model sharing the exact failure modes of the backend it wraps.
 
-Lesson worth keeping: price claims from blogs and search results were wrong for three of
-four models. `python -m engineering_team.model_config --check` re-verifies every committed
-price against the live catalogue.
+Sources: [Arena Frontend Code leaderboard](https://thenewstack.io/kimi-k3-open-weight-coding/),
+[open-weights coding comparison](https://www.morphllm.com/best-open-source-coding-model-2026),
+prices from `https://openrouter.ai/api/v1/models`.
 
-#### Measured, 2026-08-05 (budget profile, sequential, reference requirements)
+#### Measured baseline, 2026-08-05
 
-| Agent | Model | calls | in | out | USD |
-|---|---|---|---|---|---|
-| Frontend | `kimi-k2.6` | 9 | 170,937 | 20,072 | **0.1505** |
-| Engineering Lead | `glm-5.2` | 5 | 16,714 | 6,797 | 0.0292 |
-| Backend | `v4-flash-0731` | 14 | 227,851 | 21,275 | 0.0243 |
-| Test | `v4-flash-0731` | 9 | 179,244 | 5,018 | 0.0170 |
-| **TOTAL** | | 37 | 594,746 | 53,162 | **0.2210** |
+The first full run (sequential, reference requirements, on the earlier model set) cost
+**$0.2210** — ~18× cheaper than the ~$4 original — and produced working output: 51/51
+generated tests pass, `app.py` compiles, `_validate.py` builds the Gradio `Blocks`.
 
-**~18× cheaper than the ~$4 baseline**, and the output is real: all 51 generated tests
-pass, `app.py` compiles and `_validate.py` confirms the Gradio `Blocks` builds.
+| Agent | calls | in | out | USD |
+|---|---|---|---|---|
+| Frontend | 9 | 170,937 | 20,072 | **0.1505** |
+| Engineering Lead | 5 | 16,714 | 6,797 | 0.0292 |
+| Backend | 14 | 227,851 | 21,275 | 0.0243 |
+| Test | 9 | 179,244 | 5,018 | 0.0170 |
+| **TOTAL** | 37 | 594,746 | 53,162 | **0.2210** |
 
-#### What this measurement invalidates
+Two things this measurement taught, both now folded into the table above:
 
-The **frontend gets the strong model** decision does not survive contact with data. It is
-68% of total spend, while the backend engineer processed *more* input tokens for one sixth
-the cost. The rationale was that frontend output is the least verifiable — but `_validate.py`
-only asserts the `Blocks` object constructs, and the backend's "safety net" is tests written
-by the same cheap model, so neither half of that argument is as strong as claimed. Moving
-frontend to V4 Flash projects to ~$0.09 (−60%).
+- The frontend agent was **68% of total spend** while the backend engineer processed *more*
+  input tokens for one sixth the cost. Paying a premium for the frontend role was not
+  justified by anything measurable.
+- That agent's spend was **67% input tokens** — it ingests large Context7 doc dumps. So input
+  price and context window matter more than output price, which is the opposite of the
+  assumption originally used to pick a frontend model.
 
-The **manager model choice is not settled either**, but for the opposite reason: at 5 calls
-it is only 13% of spend *because the crew is still sequential*. Hierarchical (Phase 3) makes
-the manager re-reason per delegation, so this must be re-measured before judging. Honest
-provenance: `glm-5.2` came from anchoring on the GLM family in a weakly-sourced draft and
-then optimizing within it; the ~129 tool-capable models with ≥128k context in that price band
-were never enumerated, and `deepseek/deepseek-v4-pro` ($0.435/$0.870, same 1M context) beats
-it on both axes. **No capability benchmarks were run for any role** — the prices are verified,
-the quality rankings are not. Phase 6's variant racing is what turns these into measurements.
+Lesson worth keeping: price claims from blogs and search results were wrong for three of four
+models on the first pass. `python -m engineering_team.model_config --check` re-verifies every
+committed price against the live catalogue.
 
 ### Stack decisions
 
