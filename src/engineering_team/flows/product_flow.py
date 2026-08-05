@@ -27,6 +27,7 @@ from crewai.flow.human_feedback import human_feedback
 from crewai.flow.persistence import persist
 from pydantic import BaseModel, Field
 
+from ..capabilities import CONSTRAINTS_PROMPT
 from ..crew import EngineeringTeam
 from ..model_config import llm_for
 from ..schemas import QAReport
@@ -171,6 +172,7 @@ class ProductFlow(Flow[ProductState]):
             inputs={
                 "requirements": self.state.requirements,
                 "revision_notes": self.state.notes_for_prompt(),
+                "constraints": CONSTRAINTS_PROMPT,
             }
         )
 

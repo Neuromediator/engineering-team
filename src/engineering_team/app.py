@@ -15,12 +15,23 @@ import engineering_team.patch  # noqa: F401 — applies the CrewAI MCP monkey-pa
 
 import gradio as gr
 
+from engineering_team.capabilities import CAPABILITIES_MD
 from engineering_team.model_config import models, price_for
 from engineering_team.preflight import run_all
 from engineering_team.ui.session import RunSession
 
 
-DEFAULT_REQUIREMENTS = """\
+PLACEHOLDER = (
+    "Describe what you want built, in plain English.\n\n"
+    "Be specific about the rules that matter — what must be prevented, what should be "
+    "reported, what the edge cases are. The team builds what you describe, so vague "
+    "requirements produce a vague product."
+)
+
+# Offered behind a button rather than pre-filled. Pre-filling made the page look like a
+# demo of one fixed thing, and invited people to click Build on requirements they had
+# not read — which costs real money.
+EXAMPLE_REQUIREMENTS = """\
 A simple account management system for a trading simulation platform.
 The system should allow users to create an account, deposit funds, and withdraw funds.
 The system should allow users to record that they have bought or sold shares, providing a quantity.
@@ -174,13 +185,21 @@ def build_ui() -> gr.Blocks:
             with gr.Column(scale=3):
                 requirements = gr.Textbox(
                     label="Requirements",
-                    value=DEFAULT_REQUIREMENTS,
+                    placeholder=PLACEHOLDER,
                     lines=10,
                 )
-                run_button = gr.Button("Build it", variant="primary")
+                with gr.Row():
+                    run_button = gr.Button("Build it", variant="primary")
+                    example_button = gr.Button("Load example")
+                gr.Markdown(
+                    "_A full build costs roughly **$0.50** and takes several minutes. "
+                    "Asking for changes afterwards starts another one._"
+                )
                 status_box = gr.Markdown("### Idle")
 
             with gr.Column(scale=2):
+                with gr.Accordion("What this team can build — read before writing", open=True):
+                    gr.Markdown(CAPABILITIES_MD)
                 gr.Markdown("### Models")
                 gr.Markdown(_model_table())
                 gr.Markdown("### Cost")
@@ -209,6 +228,7 @@ def build_ui() -> gr.Blocks:
 
         run_button.click(start, inputs=requirements, outputs=outputs)
         feedback_button.click(send_feedback, inputs=feedback_box, outputs=outputs)
+        example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
 
         # The flow runs on a background thread; this is how its progress reaches the page.
         gr.Timer(POLL_SECONDS).tick(refresh, outputs=outputs)

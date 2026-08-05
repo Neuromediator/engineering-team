@@ -4,6 +4,7 @@ import warnings
 from datetime import datetime
 
 import engineering_team.patch  # noqa: F401 — applies CrewAI MCP monkey-patch on import
+from engineering_team.capabilities import CONSTRAINTS_PROMPT
 from engineering_team.crew import EngineeringTeam
 from engineering_team.flows import ProductFlow, race
 from engineering_team.model_config import models
@@ -117,6 +118,7 @@ def run_once():
             inputs={
                 "requirements": requirements,
                 "revision_notes": "None - this is the first attempt.",
+                "constraints": CONSTRAINTS_PROMPT,
             }
         )
     except Exception as e:

@@ -15,10 +15,7 @@ design_task:
     functions. Do not actually write any code. Function or method signatures only.
     The design should make clear which parts belong to the backend python module, which to
     the gradio app, and what the unit tests must cover.
-    All engineers work in the same sandbox directory. There is no directory structure; all
-    files are in the same directory.
-    Everything runs in a uv project with gradio installed. Backend code may use only the
-    Python standard library.
+    {constraints}
     Feedback to address from previous rounds of review (on the first attempt this says
     there is none — in that case just build it right the first time):
     {revision_notes}
@@ -32,6 +29,7 @@ code_task:
     Have the backend_engineer write the python code that implements the design, in order to
     achieve the requirements.
     Here are the requirements: {requirements}
+    {constraints}
     Feedback to address from previous rounds of review (on the first attempt this says
     there is none — in that case just build it right the first time):
     {revision_notes}
@@ -46,6 +44,7 @@ frontend_task:
   description: >
     Have the frontend_engineer write a gradio UI in a module app.py that demonstrates the
     backend code, as described in the design.
+    {constraints}
     Assume there is only 1 user, and have the UI be professional, polished, clean.
     Then have them write a separate validation script (e.g. _validate.py) that imports app.py
     and confirms the Blocks object constructs without error, and run it via the sandbox tools.

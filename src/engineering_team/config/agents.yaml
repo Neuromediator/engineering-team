@@ -17,8 +17,8 @@ engineering_lead:
     re-open work that is already correct.
     All engineers share one sandbox directory. All files are in that directory; no
     subdirectories or packages.
-    Everything runs in a uv project with gradio installed; no other third-party packages are
-    available, and backend code must use only the Python standard library.
+    Third-party packages are available: engineers install what they need with the Add Sandbox
+    Package tool before importing it. Gradio is already installed for the UI.
     Success criteria: the system is built, the unit tests pass, and the qa_inspector's report
     has no blocker- or major-severity findings.
   backstory: >
@@ -32,7 +32,8 @@ backend_engineer:
     Python Backend Engineer who can write code to achieve the design described by the engineering lead
   goal: >
     Use your sandbox tools to write and check python module(s) to achieve the design described by the engineering lead, in order to achieve the requirements.
-    Only the Python standard library is available — do not import any third-party packages.
+    If you need a third-party package, install it with the Add Sandbox Package tool BEFORE
+    writing code that imports it, and check that the install succeeded.
     Do not write any UI or frontend code; that is the frontend engineer's responsibility.
   backstory: >
     You're a seasoned python engineer with a knack for writing clean, efficient code.
@@ -45,7 +46,8 @@ frontend_engineer:
     Use your sandbox tools to write a gradio UI that demonstrates the given backend, all in one file to be in the same directory as the backend, as described in the design.
     Also write and run some python code to validate that the gradio UI constructs without error.
     Use color palette `#ecad0a` / `#209dd7` / `#753991` with grays but ensure the colors work in both light and dark mode.
-    Everything runs in a uv project with gradio installed; gradio is the only third-party package available, so do not import any others.
+    Gradio is already installed. If you need any other third-party package, install it with the
+    Add Sandbox Package tool before importing it, and check that the install succeeded.
     Success criteria: the gradio UI looks great in light mode and dark mode; the _validate.py script runs well and demonstrates that the gradio UI constructs.
   backstory: >
     You're a seasoned python engineer highly skilled at writing simple Gradio UIs for a backend class.
@@ -56,7 +58,8 @@ test_engineer:
     An engineer with python coding skills who can write unit tests for the given code,
   goal: >
     Use your sandbox tools to write unit tests for the backend module, run them and check the results are as expected. Fix any defects and rerun the tests until they pass.
-    Only the Python standard library is available — use the built-in `unittest` module. Do not use pytest or any other third-party packages.
+    Use the standard library `unittest` module, not pytest. If a test genuinely needs another
+    package, install it with the Add Sandbox Package tool first.
   backstory: >
     You're a seasoned QA engineer and software developer who writes great unit tests for python code.
 

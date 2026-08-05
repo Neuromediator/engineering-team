@@ -83,6 +83,9 @@ class Sandbox:
     def run_python(self, filename: str) -> str:
         return self.backend.run_python(filename).render()
 
+    def add_package(self, package: str) -> str:
+        return self.backend.add_package(package).render()
+
     # -- tools --------------------------------------------------------------------
 
     def tools(self) -> list:
@@ -143,11 +146,27 @@ class Sandbox:
             """
             return sandbox.run_python(filename)
 
+        @tool("Add Sandbox Package")
+        def add_sandbox_package(package: str) -> str:
+            """
+            Install a third-party Python package into the sandbox so the code you
+            write can import it. Install a package BEFORE writing code that imports
+            it, and check the result — an install can fail.
+
+            Args:
+                package: A package requirement, e.g. "pandas" or "httpx>=0.27".
+                    One package per call. Do not pass a command line.
+            Returns:
+                The exit status and output of the install.
+            """
+            return sandbox.add_package(package)
+
         built = [
             list_sandbox_files,
             read_sandbox_file,
             write_sandbox_file,
             run_sandbox_python,
+            add_sandbox_package,
         ]
         # Sandbox state changes between calls (files appear/change/run), so caching tool
         # results would feed agents stale data. Opt out of CrewAI's default tool caching.
