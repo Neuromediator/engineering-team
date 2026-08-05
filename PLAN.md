@@ -43,8 +43,24 @@ isolation (`sandbox/<run_id>/`).
 | **Product Owner** | Raw UI text → structured spec with acceptance criteria. Stops garbage-in. |
 | **QA Inspector** | Reads the sandbox, runs tests, emits severity-ranked findings that drive the router. |
 
-The Engineering Lead becomes `manager_agent`; engineers get `allow_delegation=False` to prevent
-circular delegation.
+The Engineering Lead is now `manager_agent`; the four specialists get `allow_delegation=False`
+so the manager cannot delegate to an engineer that delegates back.
+
+Two constraints are enforced by CrewAI itself, verified against the installed 1.15.10 source
+rather than the docs:
+
+- The manager must not appear in `agents` (`Crew.check_manager_llm` raises
+  `manager_agent_in_agents`), so `engineering_lead` is a plain method, not an `@agent`.
+- **The manager must not have tools** — `Crew._create_manager_agent` raises outright. The lead
+  therefore gave up the Context7 MCP it had as a normal agent. The frontend engineer keeps its
+  own, which is where the Gradio 6 lookups were actually needed.
+
+Cost is bounded by construction: `max_iter` 30 on the manager, 20 on workers, `max_rpm` 30.
+An unbounded manager is an unbounded bill, so these caps are the feature, not a detail.
+
+The **Product Owner** role is deferred to Phase 5, where it has something to do — turning free
+text typed into the UI into a structured spec. Today's requirements are a fixed string, so a PO
+crew would add cost and demo nothing.
 
 ### Models
 
@@ -120,8 +136,8 @@ committed price against the live catalogue.
 | 0 | Upgrade & de-risk — git init, crewai 1.15.10, rewrite `patch.py`, smoke test | **done** |
 | 1 | Cost floor — all roles onto OpenRouter via `config/models.yaml` | **done** |
 | 2 | Sandbox abstraction — `SandboxBackend` protocol, Docker + E2B, per-run isolation | |
-| 3 | Hierarchical + new roles — `manager_agent`, PO and QA crews with Pydantic outputs | |
-| 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | |
+| 3 | Hierarchical + QA Inspector — `manager_agent`, `QAReport` Pydantic verdict | **done** |
+| 4 | Flow — `ProductFlow` with router, iteration cap, `@persist` | next |
 | 5 | Gradio UI + observability — requirements form, streaming log, HITL, live cost panel | |
 | 6 | Parallel supervisor — variant racing + comparison view | |
 | 7 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | |

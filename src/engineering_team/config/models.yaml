@@ -38,6 +38,10 @@ models:
   backend_engineer: openrouter/deepseek/deepseek-v4-flash-0731
   frontend_engineer: openrouter/minimax/minimax-m3
   test_engineer: openrouter/deepseek/deepseek-v4-flash-0731
+  # QA gates the build/fix loop, so a wrong verdict is expensive in both directions: a
+  # false pass ships a broken build, a false fail buys another round of rework. It shares
+  # the manager's model rather than the workers' for that reason.
+  qa_inspector: openrouter/deepseek/deepseek-v4-pro
 
 # USD per million tokens.
 pricing:

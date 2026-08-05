@@ -1,37 +1,56 @@
 from crewai import Agent, Crew, Process, Task
-from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
+from crewai.project import CrewBase, agent, crew, task
+
 from .model_config import llm_for
+from .schemas import QAReport
 from .tools.sandbox_tools import sandbox_tools
-# If you want to run a snippet of code before or after the crew starts,
-# you can use the @before_kickoff and @after_kickoff decorators
-# https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
+
+
+# Bounds on the hierarchical loop. The manager re-reasons on every delegation, so an
+# unbounded manager is an unbounded bill. These are the cost ceiling, and they are the
+# reason hierarchical is safe to demo.
+MANAGER_MAX_ITER = 30
+WORKER_MAX_ITER = 20
+CREW_MAX_RPM = 30
+
 
 @CrewBase
 class EngineeringTeam():
-    """EngineeringTeam crew"""
+    """A hierarchical engineering crew: the lead manages, the specialists build.
+
+    The Engineering Lead is the ``manager_agent``. It owns task assignment and decides
+    when the goal is met, rather than the order being hardcoded by the process.
+
+    Two constraints below are enforced by CrewAI itself, verified against the installed
+    1.15.10 source rather than the docs:
+
+    * The manager must not appear in ``agents`` (``Crew.check_manager_llm`` raises
+      ``manager_agent_in_agents``). That is why :meth:`engineering_lead` is a plain
+      method and not an ``@agent``.
+    * The manager must not have tools — ``Crew._create_manager_agent`` raises outright.
+      So the lead gives up the Context7 MCP it had when it was a normal agent; the
+      frontend engineer keeps its own, which is where the Gradio 6 lookups were needed.
+    """
 
     agents: list[BaseAgent]
     tasks: list[Task]
 
-    # Learn more about YAML configuration files here:
-    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
-    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-    
-    # If you would like to add tools to your agents, you can learn more about it here:
-    # https://docs.crewai.com/concepts/agents#agent-tools
-
     # Models come from config/models.yaml, not from agents.yaml, so that the cost
     # panel and the LLM assignment always read the same source.
 
-    @agent
     def engineering_lead(self) -> Agent:
+        """The manager. Deliberately NOT an ``@agent`` — see the class docstring."""
         return Agent(
             config=self.agents_config['engineering_lead'],
             verbose=True,
             llm=llm_for('engineering_lead'),
-            mcps=["https://mcp.context7.com/mcp"]
+            allow_delegation=True,
+            max_iter=MANAGER_MAX_ITER,
         )
+
+    # Specialists never delegate. Without this the manager can delegate to an engineer
+    # that delegates back, and the crew spends real money going in circles.
 
     @agent
     def backend_engineer(self) -> Agent:
@@ -39,7 +58,9 @@ class EngineeringTeam():
             config=self.agents_config['backend_engineer'],
             verbose=True,
             llm=llm_for('backend_engineer'),
-            tools=sandbox_tools
+            tools=sandbox_tools,
+            allow_delegation=False,
+            max_iter=WORKER_MAX_ITER,
         )
 
     @agent
@@ -50,6 +71,8 @@ class EngineeringTeam():
             llm=llm_for('frontend_engineer'),
             tools=sandbox_tools,
             mcps=["https://mcp.context7.com/mcp"],
+            allow_delegation=False,
+            max_iter=WORKER_MAX_ITER,
         )
 
     @agent
@@ -58,7 +81,21 @@ class EngineeringTeam():
             config=self.agents_config['test_engineer'],
             verbose=True,
             llm=llm_for('test_engineer'),
-            tools=sandbox_tools
+            tools=sandbox_tools,
+            allow_delegation=False,
+            max_iter=WORKER_MAX_ITER,
+        )
+
+    @agent
+    def qa_inspector(self) -> Agent:
+        """Independent verification. Has sandbox tools so it can run the tests itself."""
+        return Agent(
+            config=self.agents_config['qa_inspector'],
+            verbose=True,
+            llm=llm_for('qa_inspector'),
+            tools=sandbox_tools,
+            allow_delegation=False,
+            max_iter=WORKER_MAX_ITER,
         )
 
     @task
@@ -83,19 +120,25 @@ class EngineeringTeam():
     def test_task(self) -> Task:
         return Task(
             config=self.tasks_config['test_task'],
-        )   
+        )
+
+    @task
+    def qa_task(self) -> Task:
+        """Emits a QAReport so the Phase 4 router branches on a boolean, not on prose."""
+        return Task(
+            config=self.tasks_config['qa_task'],
+            output_pydantic=QAReport,
+        )
 
     @crew
     def crew(self) -> Crew:
-        """Creates the EngineeringTeam crew"""
-        # To learn how to add knowledge sources to your crew, check out the documentation:
-        # https://docs.crewai.com/concepts/knowledge#what-is-knowledge
-
+        """Creates the EngineeringTeam crew."""
         return Crew(
-            agents=self.agents, # Automatically created by the @agent decorator
-            tasks=self.tasks, # Automatically created by the @task decorator
-            process=Process.sequential,
+            agents=self.agents,  # manager excluded: CrewAI rejects it being in here
+            tasks=self.tasks,
+            process=Process.hierarchical,
+            manager_agent=self.engineering_lead(),
+            max_rpm=CREW_MAX_RPM,
             verbose=True,
             tracing=True,
-            # process=Process.hierarchical, # In case you wanna use that instead https://docs.crewai.com/how-to/Hierarchical/
         )
