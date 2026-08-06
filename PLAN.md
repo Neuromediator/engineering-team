@@ -287,8 +287,16 @@ source download.
 
 A public Space cannot open on a 20–50 minute build that spends the owner's credit, so it
 opens on a **real completed run** instead — the gym class-booking build, $0.2388 over two
-iterations, with its genuine QA report and downloadable source. Nothing is mocked,
-including the human feedback round that fixed a waitlist-promotion overlap bug.
+iterations, with its genuine QA report and downloadable source, including the human
+feedback round that fixed a waitlist-promotion overlap bug.
+
+This claimed "nothing is mocked", which was not true of the activity panel: that log was
+never persisted, and 11 transcribed lines of 134 were rendered in the same widget a live
+run streams into, with no sign they were an excerpt. The omission was not neutral — it
+dropped every line from the frontend and test engineers, the two agents responsible for
+37 of 72 calls, so the panel contradicted the cost table beside it. The excerpt now lives
+in `demo.json` with the rest of the packaged record, labelled, with the 37-minute gap
+marked and named. Recapturing a real log means paying for another run.
 
 | Setting | Deployed value | Why |
 |---|---|---|

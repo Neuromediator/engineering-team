@@ -73,8 +73,13 @@ def progress() -> str:
     data = load()
     if not data:
         return "_No example packaged._"
+    # "Iteration 2 of 4" read as a run that might still go to 4. This one finished, and
+    # the 4 was never a target: the cap started at 2 and only became 4 because asking
+    # for changes grants a fresh budget. Reporting what happened avoids implying
+    # headroom that stopped being meaningful the moment the run ended.
+    count = data["iterations"]
     lines = [
-        f"**Iteration {data['iterations']} of {data['max_iterations']}** · "
+        f"**{count} iteration{'s' if count != 1 else ''}** · "
         f"{data['process']} · {data['duration_minutes']} minutes",
         "",
     ]
@@ -85,7 +90,11 @@ def progress() -> str:
             f"{record['blocking']} blocking, "
             f"tests {'passed' if record['tests_passed'] else 'not passing'}"
         )
-        lines.append(f"   {record['summary']}")
+        # Markdown joins adjacent lines into one paragraph, so without these blanks
+        # every iteration and its summary ran together into a single wall of text.
+        lines.append("")
+        lines.append(record["summary"])
+        lines.append("")
     lines += [
         "",
         "**Human feedback between the iterations**",
@@ -126,19 +135,46 @@ def qa_findings() -> str:
 
 
 def activity_log() -> str:
-    """A short, honest excerpt — the shape of the real log, not the whole 134 lines."""
-    return "\n".join(
-        [
-            "13:33:56  run    flow             starting (sequential process)",
-            "13:34:55  task   design_task      completed",
-            "13:36:00  tool   Backend          add_sandbox_package gradio  → SUCCESS",
-            "13:36:27  tool   Backend          write_sandbox_file  backend.py  → 7024 chars",
-            "13:38:41  tool   Backend          run_sandbox_python_file  test_booking.py  → FAILED (exit code 1)",
-            "13:39:09  tool   Backend          run_sandbox_python_file  test_booking.py  → SUCCESS",
-            "14:16:51  task   qa_task          started",
-            "14:18:34  tool   QA Inspector     run_sandbox_python_file  test_booking.py  → SUCCESS",
-            "14:21:43  task   qa_task          completed",
-            "14:21:44  run    budget           run cost $0.2388; today $0.37",
-            "14:21:44  run    flow             finished",
-        ]
-    )
+    """The preserved excerpt of the run's activity log, labelled as an excerpt.
+
+    The run is real and every line here was transcribed from it, but the log itself
+    was never written to disk — it lived in memory and stdout — so 11 of 134 lines are
+    all that survived. Rendered bare in the same widget a live run streams into, an
+    abridgement is indistinguishable from a complete log, and this one is unusually
+    misleading: it contains no line from the frontend engineer or the test engineer,
+    the two agents that between them made 37 of the run's 72 calls and, in the
+    frontend's case, the largest share of its cost. A reader comparing this panel to
+    the cost table beside it would conclude those agents never ran.
+
+    So the omission is stated rather than left to be inferred. The alternative — an
+    excerpt that reads as a full trace — is the kind of quiet overstatement this
+    project's whole premise is against.
+    """
+    data = load()
+    if not data:
+        return "_No example packaged._"
+
+    excerpt = data.get("activity_excerpt") or []
+    if not excerpt:
+        return "_No activity log was preserved for this run._"
+
+    total = data.get("activity_total_lines", len(excerpt))
+    elision_after = data.get("activity_elision_after", "")
+
+    header = [
+        f"# EXCERPT — {len(excerpt)} of {total} lines. The run is real; this record of",
+        "# it is abridged, because the full log was never written to disk.",
+        "",
+    ]
+
+    lines: list[str] = []
+    for line in excerpt:
+        lines.append(line)
+        if elision_after and line.startswith(elision_after):
+            lines.append(
+                "     ⋮     37 minutes omitted: the frontend build, the test engineer,"
+            )
+            lines.append(
+                "     ⋮     and the second iteration that followed the human feedback."
+            )
+    return "\n".join(header + lines)
