@@ -12,6 +12,7 @@ members = [
     "4c625cade498",
     "709d1ef9a12d",
     "a5e6e01ff759",
+    "ed33eb37f802",
     "engineering-team",
     "sandbox",
 ]
@@ -728,6 +729,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/5a/5e72da1b6c1692f2b79b286634e4cfeb114a796e6fdd64a37852a4b2800b/e2b_code_interpreter-2.9.0.tar.gz", hash = "sha256:5e5e5bbeaba49653a7a7782770a0aa2b5f801f3cd77e7e8e8b4f97eb3682f5e3", size = 11579, upload-time = "2026-07-23T16:43:00.152Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7d/12/05c974ad1823fb1808432e87fda1675c6d0c2abb8d21cd23da91daaae684/e2b_code_interpreter-2.9.0-py3-none-any.whl", hash = "sha256:8e0520815bfb596ece0c730e430b970900adda6a174d56dc12dae5bd2b39e281", size = 15437, upload-time = "2026-07-23T16:42:59.034Z" },
+]
+
+[[package]]
+name = "ed33eb37f802"
+version = "0.1.0"
+source = { virtual = "sandbox/ed33eb37f802" }
+dependencies = [
+    { name = "gradio" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gradio", specifier = ">=6.22.0" },
+    { name = "pandas", specifier = ">=3.0.5" },
 ]
 
 [[package]]

@@ -50,12 +50,19 @@ class LogLine:
 # that the delivered code meets the requirements"). Truncating those gives columns of
 # "Quality Inspector who independently ve" — the distinguishing part is the first two or
 # three words, so map them to names a person can scan.
+#
+# ORDER MATTERS, and getting it wrong is not cosmetic. The backend engineer's role reads
+# "Python Backend Engineer who can write code to achieve the design described by the
+# engineering lead" — it *contains* "engineering lead". With that pattern checked first,
+# every backend call was relabelled as the Lead, in both the log and the cost table, and
+# the UI showed a run where the backend engineer apparently never worked. The most
+# specific patterns therefore come first and "engineering lead" is checked last.
 ROLE_SHORT_NAMES = (
-    ("engineering lead", "Engineering Lead"),
     ("backend engineer", "Backend"),
     ("gradio expert", "Frontend"),
     ("unit tests", "Test Engineer"),
     ("quality inspector", "QA Inspector"),
+    ("engineering lead", "Engineering Lead"),
 )
 
 
