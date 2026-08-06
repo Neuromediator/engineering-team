@@ -246,7 +246,8 @@ def _progress(snapshot: dict) -> str:
         "",
     ]
     for record in state.history:
-        mark = "✅" if record.passed else "❌"
+        crashed = record.summary.startswith("The build did not complete")
+        mark = "⚠️" if crashed else ("✅" if record.passed else "❌")
         lines.append(
             f"{mark} **Iteration {record.iteration}** — "
             f"{record.blocking_findings} blocking, "
@@ -272,7 +273,16 @@ def _qa_findings(snapshot: dict) -> str:
             )
         return "_No QA report yet._"
 
-    lines = [
+    stale = getattr(state, "last_iteration_failed", False)
+    from_iteration = getattr(state, "qa_report_iteration", 0)
+    lines = []
+    if stale:
+        lines += [
+            f"> ⚠️ **This report is from iteration {from_iteration}.** The most recent "
+            f"attempt failed before QA could run — see Progress for the reason.",
+            "",
+        ]
+    lines += [
         f"**Verdict: {'PASS' if report.verdict() else 'FAIL'}** — "
         f"tests {'ran' if report.tests_run else 'never ran'}, "
         f"{'all passed' if report.tests_passed else 'not all passing'}",

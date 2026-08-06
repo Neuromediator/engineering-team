@@ -88,6 +88,12 @@ class ProductState(BaseModel):
     archive_path: str = ""
 
     qa_report: QAReport | None = None
+
+    # Which iteration produced `qa_report`, and whether the newest attempt crashed before
+    # producing one. A failed iteration must not be routed on a stale verdict — but
+    # throwing the verdict away left the panel blank and the human with nothing to read.
+    qa_report_iteration: int = 0
+    last_iteration_failed: bool = False
     history: list[IterationRecord] = Field(default_factory=list)
 
     # Accumulated instructions for the next build: QA blockers, then human feedback.
@@ -215,7 +221,9 @@ class ProductFlow(Flow[ProductState]):
             # on. Record it, let evaluate() decide whether another attempt is affordable.
             reason = f"{type(exc).__name__}: {exc}"
             print(f"\nIteration {self.state.iteration} failed: {reason}")
-            self.state.qa_report = None
+            # Keep the previous report for display, but mark it stale so evaluate()
+            # cannot approve on the strength of a verdict this attempt never earned.
+            self.state.last_iteration_failed = True
             self.state.history.append(
                 IterationRecord(
                     iteration=self.state.iteration,
@@ -238,7 +246,10 @@ class ProductFlow(Flow[ProductState]):
             self.state.llm_calls += getattr(usage, "successful_requests", 0) or 0
 
         report = _extract_report(result)
-        self.state.qa_report = report
+        self.state.last_iteration_failed = False
+        if report is not None:
+            self.state.qa_report = report
+            self.state.qa_report_iteration = self.state.iteration
         self.state.history.append(
             IterationRecord(
                 iteration=self.state.iteration,
@@ -258,6 +269,10 @@ class ProductFlow(Flow[ProductState]):
     def evaluate(self) -> str:
         """Decide the next branch from structured findings, not from prose."""
         report = self.state.qa_report
+
+        # A crashed attempt never earned a verdict, whatever the last good report said.
+        if self.state.last_iteration_failed:
+            report = None
 
         if report is not None and report.verdict():
             self.state.approved = True

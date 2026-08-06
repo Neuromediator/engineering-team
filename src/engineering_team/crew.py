@@ -36,6 +36,10 @@ WORKER_TIME_LIMIT = 900
 # and the sleeps just stretched the run.
 CREW_MAX_RPM = 120
 
+# "Invalid response from LLM call - None or empty" cost an entire iteration once. That is
+# a transient provider failure, not a reason to throw away a build.
+AGENT_MAX_RETRIES = 3
+
 PROCESS_ENV_VAR = "CREW_PROCESS"
 
 # Sequential is the default because it was measured to be the better tool for this
@@ -122,6 +126,7 @@ class EngineeringTeam():
                 allow_delegation=self.is_hierarchical,
                 max_iter=MANAGER_MAX_ITER,
                 max_execution_time=MANAGER_TIME_LIMIT,
+                max_retry_limit=AGENT_MAX_RETRIES,
             )
         return self._lead
 
@@ -138,6 +143,7 @@ class EngineeringTeam():
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
             max_execution_time=WORKER_TIME_LIMIT,
+            max_retry_limit=AGENT_MAX_RETRIES,
         )
 
     @agent
@@ -151,6 +157,7 @@ class EngineeringTeam():
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
             max_execution_time=WORKER_TIME_LIMIT,
+            max_retry_limit=AGENT_MAX_RETRIES,
         )
 
     @agent
@@ -163,6 +170,7 @@ class EngineeringTeam():
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
             max_execution_time=WORKER_TIME_LIMIT,
+            max_retry_limit=AGENT_MAX_RETRIES,
         )
 
     @agent
@@ -176,6 +184,7 @@ class EngineeringTeam():
             allow_delegation=False,
             max_iter=WORKER_MAX_ITER,
             max_execution_time=WORKER_TIME_LIMIT,
+            max_retry_limit=AGENT_MAX_RETRIES,
         )
 
     # Output files are set here, not in tasks.yaml, because they must land inside
