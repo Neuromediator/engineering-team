@@ -1,0 +1,8 @@
+# Hugging Face Spaces installs from this file, not from pyproject.toml.
+# Kept to the same top-level dependencies pyproject declares, rather than a full
+# 609-line pin of the transitive closure: pinning everything fights whatever the
+# Space image already has installed, and the lock file remains the reproducible
+# record for local development.
+crewai[tools]==1.15.10
+e2b-code-interpreter>=2.9.0
+gradio>=6
