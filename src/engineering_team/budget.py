@@ -112,3 +112,23 @@ def status_line() -> str:
     if limit <= 0:
         return "Budget: unlimited"
     return f"Budget today: ${spent_today():.2f} of ${limit:.2f}"
+
+
+# Deployment gate. When BUILD_PASSPHRASE is set, a live build requires it; visitors
+# still get the full UI and a real preserved run. Unset (local development) means no gate.
+def build_passphrase() -> str:
+    return os.environ.get("BUILD_PASSPHRASE", "").strip()
+
+
+def passphrase_ok(supplied: str) -> tuple[bool, str]:
+    """Whether a live build may start. Open when no passphrase is configured."""
+    expected = build_passphrase()
+    if not expected:
+        return True, ""
+    if (supplied or "").strip() == expected:
+        return True, ""
+    return False, (
+        "Live builds are limited on this deployment — a build costs the owner real money "
+        "and takes 20-50 minutes. Browse the packaged example instead; it is a genuine "
+        "run with its real cost table, QA report and downloadable source."
+    )

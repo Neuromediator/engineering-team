@@ -1,0 +1,98 @@
+{
+  "requirements": "Our small gym wants a tool to manage class bookings. Members should be able to see the weekly class schedule, book a spot, and cancel up to 2 hours before the class starts. Each class has a capacity limit; when it's full, people join a waitlist and get promoted automatically if someone cancels. Staff need a simple way to add or remove classes. We don't want members double-booking themselves into overlapping classes. Data should survive a restart.",
+  "process": "sequential",
+  "iterations": 2,
+  "max_iterations": 4,
+  "total_usd": 0.2388,
+  "duration_minutes": 48,
+  "by_agent": [
+    {
+      "agent": "Frontend",
+      "calls": 26,
+      "in": 283281,
+      "out": 16345,
+      "usd": 0.1046
+    },
+    {
+      "agent": "QA Inspector",
+      "calls": 13,
+      "in": 150008,
+      "out": 29914,
+      "usd": 0.0913
+    },
+    {
+      "agent": "Backend",
+      "calls": 20,
+      "in": 210391,
+      "out": 25236,
+      "usd": 0.0235
+    },
+    {
+      "agent": "Test Engineer",
+      "calls": 11,
+      "in": 71586,
+      "out": 8332,
+      "usd": 0.0079
+    },
+    {
+      "agent": "(unattributed)",
+      "calls": 1,
+      "in": 11786,
+      "out": 2898,
+      "usd": 0.007
+    },
+    {
+      "agent": "Engineering Lead",
+      "calls": 1,
+      "in": 1110,
+      "out": 4559,
+      "usd": 0.0044
+    }
+  ],
+  "history": [
+    {
+      "iteration": 1,
+      "passed": true,
+      "blocking": 0,
+      "tests_passed": true,
+      "summary": "All 19 unit tests pass and _validate.py confirms app.demo is a gr.Blocks instance. No blocker- or major-severity findings remain. Three minor issues and one nit were noted but do not fail the build."
+    },
+    {
+      "iteration": 2,
+      "passed": true,
+      "blocking": 0,
+      "tests_passed": true,
+      "summary": "All 21 unit tests pass. The waitlist-promotion overlap gap raised in the human feedback is fixed: _promote_from_waitlist now re-checks for conflicting bookings before promoting a member."
+    }
+  ],
+  "human_feedback": "The waitlist promotion doesn't re-check for overlapping bookings before adding a promoted member. Fix promote() to run the same overlap check as a normal booking, and add a unit test covering it.",
+  "qa_report": {
+    "passed": true,
+    "summary": "All 21 unit tests pass and _validate.py confirms app.demo is a gr.Blocks instance. The waitlist-promotion overlap gap from the feedback is fixed: _promote_from_waitlist now runs _check_overlap for every candidate and skips anyone who would create a double-booking, with two dedicated tests covering both the conflict and non-conflict scenarios. Three minor file-discipline findings (extra non-deliverable files) do not block release.",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "test_summary.md",
+        "summary": "Extra file not in the deliverable set.",
+        "detail": "The file-discipline constraint permits exactly backend.py, app.py, test_booking.py, and _validate.py. test_summary.md is a leftover review summary and should be removed.",
+        "requirement": "File discipline \u2014 the deliverable is exactly these files, and no others."
+      },
+      {
+        "severity": "minor",
+        "file": "design.md",
+        "summary": "Extra file not in the deliverable set.",
+        "detail": "The file-discipline constraint permits exactly four files. design.md is a design document that is not part of the deliverable and should be removed from the sandbox.",
+        "requirement": "File discipline \u2014 the deliverable is exactly these files, and no others."
+      },
+      {
+        "severity": "minor",
+        "file": "qa_report.json",
+        "summary": "Extra file not in the deliverable set.",
+        "detail": "The file-discipline constraint permits exactly four files. qa_report.json is a previous QA report artefact and should be removed from the sandbox.",
+        "requirement": "File discipline \u2014 the deliverable is exactly these files, and no others."
+      }
+    ],
+    "tests_run": true,
+    "tests_passed": true
+  }
+}

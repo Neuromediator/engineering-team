@@ -15,7 +15,7 @@ import engineering_team.patch  # noqa: F401 — applies the CrewAI MCP monkey-pa
 
 import gradio as gr
 
-from engineering_team import budget
+from engineering_team import budget, demo
 from engineering_team.capabilities import CAPABILITIES_MD
 from engineering_team.crew import VALID_PROCESSES, process_name
 from engineering_team.model_config import models, price_for
@@ -331,8 +331,12 @@ def build_ui() -> gr.Blocks:
             session,
         )
 
-    def start(requirements: str, process: str, session: RunSession | None):
+    def start(requirements: str, process: str, key: str, session: RunSession | None):
         session = _ensure(session)
+        allowed, why = budget.passphrase_ok(key)
+        if not allowed:
+            gr.Warning(why)
+            return refresh(session)
         if not requirements.strip():
             gr.Warning("Describe what you want built first.")
             return refresh(session)
@@ -346,6 +350,29 @@ def build_ui() -> gr.Blocks:
         if session.snapshot()["notice"]:
             gr.Warning(session.snapshot()["notice"])
         return refresh(session)
+
+    def show_demo(session: RunSession | None):
+        """Render a real completed run without spending anything."""
+        data = demo.load()
+        session = _ensure(session)
+        if not data:
+            gr.Warning("No example is packaged with this build.")
+            return refresh(session)
+        return (
+            _status_html("finished", ""),
+            demo.activity_log(),
+            demo.cost_table(),
+            demo.progress(),
+            demo.qa_findings(),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=True),
+            f"_{budget.status_line()}_",
+            gr.update(value=demo.archive(), visible=bool(demo.archive())),
+            gr.update(value=data["requirements"], interactive=True),
+            session,
+        )
 
     def request_changes(feedback: str, session: RunSession | None):
         session = _ensure(session)
@@ -361,7 +388,10 @@ def build_ui() -> gr.Blocks:
         return refresh(session)
 
     # Gradio 6 moved `theme` off the Blocks constructor onto launch().
-    with gr.Blocks(title="Engineering Team") as demo:
+    # NOT named `demo`: that would shadow the engineering_team.demo module inside
+    # every handler defined in this scope, and `demo.load()` would silently call
+    # Blocks.load() instead of loading the packaged example.
+    with gr.Blocks(title="Engineering Team") as page:
         session_state = gr.State(None)
         gr.HTML(
             "<div id='masthead'>"
@@ -388,6 +418,12 @@ def build_ui() -> gr.Blocks:
                     # nature — so Ctrl/Cmd+Enter submits, which is the usual convention.
                     info="Ctrl+Enter to build. The box locks while a build is running.",
                 )
+                passphrase = gr.Textbox(
+                    label="Build key",
+                    type="password",
+                    visible=bool(budget.build_passphrase()),
+                    info="Live builds are limited on the public deployment.",
+                )
                 process_choice = gr.Radio(
                     choices=list(VALID_PROCESSES),
                     value=process_name(),
@@ -401,7 +437,9 @@ def build_ui() -> gr.Blocks:
                 )
                 with gr.Row():
                     run_button = gr.Button("Build it", variant="primary", scale=2)
-                    example_button = gr.Button("Load example", scale=1)
+                    demo_button = gr.Button("Show a finished run", scale=2)
+                with gr.Row():
+                    example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
                 gr.Markdown(
                     "_Measured: **$0.22 / ~10 min** sequential, **$0.52 / ~30 min** hierarchical. "
@@ -458,10 +496,14 @@ def build_ui() -> gr.Blocks:
         ]
 
         run_button.click(
-            start, inputs=[requirements, process_choice, session_state], outputs=outputs
+            start,
+            inputs=[requirements, process_choice, passphrase, session_state],
+            outputs=outputs,
         )
         requirements.submit(
-            start, inputs=[requirements, process_choice, session_state], outputs=outputs
+            start,
+            inputs=[requirements, process_choice, passphrase, session_state],
+            outputs=outputs,
         )
         revise_button.click(
             request_changes, inputs=[feedback_box, session_state], outputs=outputs
@@ -470,6 +512,7 @@ def build_ui() -> gr.Blocks:
             approve_and_ship, inputs=[feedback_box, session_state], outputs=outputs
         )
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
+        demo_button.click(show_demo, inputs=session_state, outputs=outputs)
         clear_button.click(lambda: "", outputs=requirements)
 
         # The flow runs on a background thread; this is how its progress reaches the page.
@@ -484,9 +527,9 @@ def build_ui() -> gr.Blocks:
             session.discard()
             return refresh(session)
 
-        demo.load(on_page_load, inputs=session_state, outputs=outputs)
+        page.load(on_page_load, inputs=session_state, outputs=outputs)
 
-    return demo
+    return page
 
 
 def main() -> None:

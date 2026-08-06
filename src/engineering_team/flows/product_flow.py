@@ -22,6 +22,8 @@ Phase 5 human-in-the-loop pause survivable: the UI can come back later via
 
 from __future__ import annotations
 
+import os
+
 from crewai.flow.flow import Flow, listen, or_, router, start
 from crewai.flow.human_feedback import human_feedback
 from crewai.flow.persistence import persist
@@ -35,9 +37,10 @@ from ..tools.sandbox_tools import SANDBOX_ROOT, Sandbox, new_run_id
 from ..ui.feedback_provider import PendingUIFeedbackProvider
 
 
-# The cost ceiling. Each iteration is a full hierarchical crew run, so this number is
-# the difference between a bounded demo and an unbounded bill.
-MAX_AUTO_ITERATIONS = 3
+# The cost ceiling. Each iteration is a full crew run, so this number is the difference
+# between a bounded demo and an unbounded bill. Deployed, 2 is the sane value: a gym
+# booking build used its full budget of 3 and took most of an hour.
+MAX_AUTO_ITERATIONS = int(os.environ.get("MAX_AUTO_ITERATIONS", "3"))
 
 # The UI states the human's decision explicitly by prefixing their feedback with one of
 # these. It is a sentinel, not natural language, because the branch must be decided by
