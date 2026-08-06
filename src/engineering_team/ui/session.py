@@ -1,8 +1,21 @@
-"""Runs a ProductFlow off the request thread and exposes its progress to the UI.
+"""Per-visitor build sessions, and the single lock that serialises them.
 
-A build takes minutes and a Gradio callback cannot hold that long, so the flow runs on a
-background thread and the UI polls this object with a ``gr.Timer``. Everything a poll can
-touch is guarded, because the flow thread writes while the request thread reads.
+Each browser session gets its own :class:`RunSession`: its own requirements, flow,
+sandbox, cost table and download. Nobody sees anybody else's work, and one visitor
+starting a build cannot discard another's results.
+
+**Only one build runs at a time**, enforced by a module-level lock. Two reasons, and the
+second is the one that matters:
+
+* a free-tier Space has 2 vCPU and a build spends fifteen minutes driving containers —
+  two at once would not go faster, they would go wrong;
+* CrewAI's event bus is **global**. Events carry ``agent_id`` but no session identity, so
+  two concurrent builds would interleave into whichever recorder happened to be
+  listening. Serialising runs makes the active session unambiguous, which is a more
+  honest fix than guessing at attribution.
+
+The listeners are therefore installed once, for the process, and forward into whichever
+session currently holds the lock.
 """
 
 from __future__ import annotations
@@ -10,8 +23,8 @@ from __future__ import annotations
 import shutil
 import threading
 import traceback
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from crewai.flow.async_feedback.types import HumanFeedbackPending
@@ -26,10 +39,75 @@ from .feedback_provider import clear_pending, enable_pausing
 
 Status = Literal["idle", "running", "awaiting_feedback", "finished", "failed"]
 
+BUSY_MESSAGE = (
+    "Another build is running. Only one runs at a time on this hardware — "
+    "try again in a few minutes."
+)
+
+# Held for the duration of an active build. Released when a run finishes, fails, or
+# pauses for feedback, so a visitor who walks away mid-question cannot block everyone.
+_run_lock = threading.Lock()
+
+# The session the global listeners currently write into.
+_active_lock = threading.Lock()
+_active: "RunSession | None" = None
+
+
+def _set_active(session: "RunSession | None") -> None:
+    global _active
+    with _active_lock:
+        _active = session
+
+
+def _current() -> "RunSession | None":
+    with _active_lock:
+        return _active
+
+
+class _ActiveRecorder:
+    """Forwards recorded calls to whichever session is currently building."""
+
+    def record(self, call) -> None:
+        session = _current()
+        if session is not None:
+            session.recorder.record(call)
+
+
+class _ActiveLog:
+    """Forwards log lines to whichever session is currently building."""
+
+    def add(self, kind: str, actor: object, message: str) -> None:
+        session = _current()
+        if session is not None:
+            session.log.add(kind, actor, message)
+
+
+_listeners_installed = False
+_install_lock = threading.Lock()
+_cost_listener: CostListener | None = None
+_activity_listener: ActivityListener | None = None
+
+
+def install_listeners() -> None:
+    """Attach the bus listeners exactly once for the process.
+
+    A listener per session would mean every session recording every other session's
+    calls, because the bus is global and offers no unsubscribe.
+    """
+    global _listeners_installed, _cost_listener, _activity_listener
+    with _install_lock:
+        if _listeners_installed:
+            return
+        # Kept in module globals so they outlive this call.
+        _cost_listener = CostListener(_ActiveRecorder())
+        _activity_listener = ActivityListener(_ActiveLog())
+        enable_pausing(True)
+        _listeners_installed = True
+
 
 @dataclass
 class RunSession:
-    """One product build, from requirements to delivery."""
+    """One visitor's build, from requirements to downloadable source."""
 
     recorder: RunRecorder = field(default_factory=RunRecorder)
     log: RunLog = field(default_factory=RunLog)
@@ -39,28 +117,27 @@ class RunSession:
     flow: ProductFlow | None = None
     flow_id: str = ""
     question: str = ""
+    notice: str = ""
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _thread: threading.Thread | None = field(default=None, repr=False)
+    _holds_run_lock: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
-        # Listeners register on the global bus, so they are attached once per session and
-        # kept alive by these references.
-        self._cost_listener = CostListener(self.recorder)
-        self._activity_listener = ActivityListener(self.log)
-        enable_pausing(True)
+        install_listeners()
 
     # -- state the UI reads -------------------------------------------------------
 
     def snapshot(self) -> dict:
         with self._lock:
             status, error, question = self.status, self.error, self.question
-            flow = self.flow
+            notice, flow = self.notice, self.flow
         state = flow.state if flow is not None else None
         return {
             "status": status,
             "error": error,
             "question": question,
+            "notice": notice,
             "log": self.log.render(),
             "cost": self.recorder.total_cost(),
             "by_agent": self.recorder.by_agent(),
@@ -90,17 +167,33 @@ class RunSession:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-    # -- driving the flow ---------------------------------------------------------
+    # -- the shared run lock ------------------------------------------------------
+
+    def _acquire_run_lock(self) -> bool:
+        if self._holds_run_lock:
+            return True
+        if not _run_lock.acquire(blocking=False):
+            return False
+        self._holds_run_lock = True
+        _set_active(self)
+        return True
+
+    def _release_run_lock(self) -> None:
+        if not self._holds_run_lock:
+            return
+        self._holds_run_lock = False
+        if _current() is self:
+            _set_active(None)
+        _run_lock.release()
+
+    # -- lifecycle ----------------------------------------------------------------
 
     def discard(self) -> bool:
-        """Delete the previous run's workspace and its archive.
+        """Delete this session's previous workspace and archive.
 
         Deployed, this is a privacy and disk property rather than a nicety: a visitor's
         requirements and generated source should not outlive their visit, and a Space
-        has a small ephemeral disk. Called when a new build starts and when the page is
-        reloaded, so output lives exactly as long as the tab that produced it.
-
-        A run in flight is never discarded.
+        has a small ephemeral disk. A run in flight is never discarded.
         """
         if self.is_busy:
             return False
@@ -117,29 +210,34 @@ class RunSession:
 
         self.log.reset()
         self.recorder.reset()
-        self._set(flow=None, status="idle", error="", question="", flow_id="")
+        self._set(
+            flow=None, status="idle", error="", question="", flow_id="", notice=""
+        )
         return True
 
     def start(self, requirements: str, process: str = "") -> None:
-        """Kick off a build. Does nothing if one is already in flight."""
+        """Kick off a build. Does nothing if this session already has one running."""
         if self.is_busy:
             return
-
-        # A new task replaces the old one entirely, including its files.
-        self.discard()
 
         allowed, reason = budget.check_can_start()
         if not allowed:
             self._set(status="failed", error=reason)
-            self.log.add("run", "budget", reason)
             return
 
-        self.recorder.reset()
-        self.log.reset()
+        if not self._acquire_run_lock():
+            self._set(notice=BUSY_MESSAGE)
+            return
+
+        # A new task replaces this session's old one entirely, including its files.
+        self.discard()
+
         flow = ProductFlow()
         # Lets the flow's router stop before paying for another iteration.
         flow._cost_probe = self.recorder.total_cost
-        self._set(flow=flow, status="running", error="", question="", flow_id="")
+        self._set(
+            flow=flow, status="running", error="", question="", flow_id="", notice=""
+        )
         self.log.add("run", "flow", f"starting ({process or 'default'} process)")
 
         self._spawn(
@@ -149,14 +247,17 @@ class RunSession:
         )
 
     def submit_feedback(self, feedback: str) -> None:
-        """Resume a paused flow with the human's answer."""
+        """Resume a paused flow with this visitor's answer."""
         with self._lock:
             if self.status != "awaiting_feedback":
                 return
             flow_id = self.flow_id
-            self.status = "running"
-            self.question = ""
 
+        if not self._acquire_run_lock():
+            self._set(notice=BUSY_MESSAGE)
+            return
+
+        self._set(status="running", question="", notice="")
         self.log.add("run", "human", f"feedback: {feedback[:60]}")
         clear_pending(flow_id)
 
@@ -180,6 +281,7 @@ class RunSession:
             except Exception as exc:  # noqa: BLE001 - surfaced to the UI, not swallowed
                 self.log.add("run", "flow", f"FAILED: {exc}")
                 self._set(status="failed", error=traceback.format_exc())
+                self._release_run_lock()
                 return
 
             # resume() does NOT raise on a second pause — it *returns* the pending
@@ -191,11 +293,15 @@ class RunSession:
                 return
 
             self.recorder.settle()
-            # Record actual spend so the daily ceiling survives a restart.
             total = budget.record(self.recorder.total_cost())
-            self.log.add("run", "budget", f"run cost ${self.recorder.total_cost():.4f}; today ${total:.2f}")
+            self.log.add(
+                "run",
+                "budget",
+                f"run cost ${self.recorder.total_cost():.4f}; today ${total:.2f}",
+            )
             self.log.add("run", "flow", "finished")
             self._set(status="finished")
+            self._release_run_lock()
 
         thread = threading.Thread(target=runner, daemon=True)
         self._thread = thread
@@ -210,3 +316,5 @@ class RunSession:
         self.recorder.settle()
         self.log.add("run", "flow", "paused for human feedback")
         self._set(status="awaiting_feedback", flow_id=flow_id, question=message)
+        # Released while waiting: a visitor who never answers must not block everyone.
+        self._release_run_lock()

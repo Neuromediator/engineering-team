@@ -289,9 +289,14 @@ def _qa_findings(snapshot: dict) -> str:
 
 
 def build_ui() -> gr.Blocks:
-    session = RunSession()
+    # One RunSession per browser session, held in gr.State. A module-level session
+    # would be shared by every visitor: one person pressing "Build it" would discard
+    # another's finished results and overwrite their cost table.
+    def _ensure(session: RunSession | None) -> RunSession:
+        return session if session is not None else RunSession()
 
-    def refresh():
+    def refresh(session: RunSession | None):
+        session = _ensure(session)
         snapshot = session.snapshot()
         status = snapshot["status"]
         awaiting = status == "awaiting_feedback"
@@ -309,27 +314,33 @@ def build_ui() -> gr.Blocks:
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             f"_{budget.status_line()}_",
             gr.update(value=archive, visible=bool(archive)),
+            session,
         )
 
-    def start(requirements: str, process: str):
+    def start(requirements: str, process: str, session: RunSession | None):
+        session = _ensure(session)
         if not requirements.strip():
             gr.Warning("Describe what you want built first.")
-            return refresh()
+            return refresh(session)
         failures = [check for check in run_all() if not check.ok]
         if failures:
             # Same reasoning as the CLI preflight: a run whose sandbox cannot execute
             # still costs full price while producing code nobody verified.
             gr.Warning("Preflight failed: " + "; ".join(c.detail for c in failures))
-            return refresh()
+            return refresh(session)
         session.start(requirements, process)
-        return refresh()
+        if session.snapshot()["notice"]:
+            gr.Warning(session.snapshot()["notice"])
+        return refresh(session)
 
-    def send_feedback(feedback: str):
+    def send_feedback(feedback: str, session: RunSession | None):
+        session = _ensure(session)
         session.submit_feedback(feedback or "")
-        return refresh()
+        return refresh(session)
 
     # Gradio 6 moved `theme` off the Blocks constructor onto launch().
     with gr.Blocks(title="Engineering Team") as demo:
+        session_state = gr.State(None)
         gr.HTML(
             "<div id='masthead'>"
             "<h1>Engineering Team</h1>"
@@ -411,24 +422,31 @@ def build_ui() -> gr.Blocks:
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
             feedback_box, feedback_button, run_button, budget_box, download_box,
+            session_state,
         ]
 
         run_button.click(
-            start, inputs=[requirements, process_choice], outputs=outputs
+            start, inputs=[requirements, process_choice, session_state], outputs=outputs
         )
-        feedback_button.click(send_feedback, inputs=feedback_box, outputs=outputs)
+        feedback_button.click(
+            send_feedback, inputs=[feedback_box, session_state], outputs=outputs
+        )
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
         clear_button.click(lambda: "", outputs=requirements)
 
         # The flow runs on a background thread; this is how its progress reaches the page.
-        gr.Timer(POLL_SECONDS).tick(refresh, outputs=outputs)
+        gr.Timer(POLL_SECONDS).tick(
+            refresh, inputs=session_state, outputs=outputs
+        )
 
-        def on_page_load():
-            # A reload ends the previous result's life; a run in flight is left alone.
+        def on_page_load(session: RunSession | None):
+            # A reload ends this visitor's previous result; a run in flight is left
+            # alone, and other visitors are untouched.
+            session = _ensure(session)
             session.discard()
-            return refresh()
+            return refresh(session)
 
-        demo.load(on_page_load, outputs=outputs)
+        demo.load(on_page_load, inputs=session_state, outputs=outputs)
 
     return demo
 
