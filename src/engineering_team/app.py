@@ -363,7 +363,18 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             f"_{budget.status_line()}_",
-            gr.update(value=archive, visible=bool(archive)),
+            gr.update(
+                value=archive,
+                visible=bool(archive),
+                # At the gate the build is the thing being judged, not a finished
+                # article; calling it "Finished source" there would tell the reviewer the
+                # decision was already made.
+                label=(
+                    "Source under review — download it before you decide"
+                    if awaiting
+                    else "Finished source"
+                ),
+            ),
             # No `value`: sending one would overwrite whatever the visitor is typing on
             # the next poll. Only the lock state changes.
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
@@ -526,8 +537,11 @@ def build_ui() -> gr.Blocks:
                 progress_box = gr.Markdown("_Not started._")
                 gr.Markdown("### QA report")
                 qa_box = gr.Markdown("_No QA report yet._", elem_id="qa_panel")
+                # Label is set per refresh, not fixed here: this component now appears at
+                # the human gate too, where "Finished source" would be a lie — nothing
+                # has shipped and the reviewer may yet send it back.
                 download_box = gr.File(
-                    label="Finished source", visible=False, interactive=False
+                    label="Source", visible=False, interactive=False
                 )
                 gr.Markdown(
                     "_Download it while you are here — the files are deleted when you "

@@ -321,6 +321,26 @@ class ProductFlow(Flow[ProductState]):
 
         return "revise"
 
+    def _export_source(self) -> None:
+        """Archive the current source so a human can actually read what they are judging.
+
+        Called before the human gate, not only on the way out of it. Asking someone to
+        "review the build" while the only download appears *after* they approve it gives
+        them a choice they have no basis to make — and on the E2B backend the files are
+        on a remote microVM, so there is nothing else to open.
+
+        Re-run on delivery because a revision changes the files after this point. A
+        failed export must never fail the run: the archive is a convenience, and losing
+        it is not worth losing the build.
+        """
+        try:
+            archive = self.sandbox().export_archive(EXPORTS_DIR)
+            if archive is not None:
+                self.state.archive_path = str(archive)
+                print(f"Source archived to {archive}")
+        except Exception as exc:  # noqa: BLE001 - a failed export must not fail the run
+            print(f"Could not archive the source: {exc}")
+
     @listen("approved")
     def finalize(self) -> str:
         message = (
@@ -328,6 +348,7 @@ class ProductFlow(Flow[ProductState]):
             f"iteration{'s' if self.state.iteration != 1 else ''}."
         )
         print(f"\n{message}")
+        self._export_source()
         return message
 
     @listen("exhausted")
@@ -341,6 +362,9 @@ class ProductFlow(Flow[ProductState]):
             f"{blocking} blocking finding(s) outstanding. The build is NOT approved."
         )
         print(f"\n{message}")
+        # Especially here. A build that stopped with findings outstanding is the one a
+        # reviewer most needs to open before deciding whether it ships anyway.
+        self._export_source()
         return message
 
     @listen(or_(finalize, stop_at_cap))
@@ -402,13 +426,9 @@ class ProductFlow(Flow[ProductState]):
 
         # Pull the source out BEFORE releasing. With the E2B backend the files live on a
         # microVM that close() destroys, so exporting afterwards would archive nothing.
-        try:
-            archive = self.sandbox().export_archive(EXPORTS_DIR)
-            if archive is not None:
-                self.state.archive_path = str(archive)
-                print(f"Source archived to {archive}")
-        except Exception as exc:  # noqa: BLE001 - a failed export must not fail the run
-            print(f"Could not archive the source: {exc}")
+        # Repeated from the pre-gate export because a revision changes the files between
+        # the two, and delivering the version the reviewer saw first would be wrong.
+        self._export_source()
 
         # Terminal step: nothing else will touch the workspace, so stop paying for it.
         # Deliberately not done in finalize/stop_at_cap — a human can still send those
