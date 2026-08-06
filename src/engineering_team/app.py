@@ -305,9 +305,48 @@ def build_ui() -> gr.Blocks:
     def _ensure(session: RunSession | None) -> RunSession:
         return session if session is not None else RunSession()
 
+    def _demo_view(session: RunSession, data: dict, with_requirements: bool):
+        """Render the packaged example run.
+
+        Shared by the button and the poll timer. The timer writes to these same
+        components every couple of seconds, so if it did not know about this view it
+        would immediately overwrite it with the visitor's own (empty) session — which
+        is exactly what it used to do.
+
+        ``with_requirements`` is False on a timer tick: re-sending the value would
+        overwrite anything the visitor has since typed into the box, the same reason
+        :func:`refresh` never sends one.
+        """
+        return (
+            _status_html("finished", ""),
+            demo.activity_log(),
+            demo.cost_table(),
+            demo.progress(),
+            demo.qa_findings(),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=True),
+            f"_{budget.status_line()}_",
+            gr.update(value=demo.archive(), visible=bool(demo.archive())),
+            gr.update(value=data["requirements"], interactive=True)
+            if with_requirements
+            else gr.update(interactive=True),
+            session,
+        )
+
     def refresh(session: RunSession | None):
         session = _ensure(session)
         snapshot = session.snapshot()
+
+        # A visitor reading the packaged run has no run of their own; rendering this
+        # session's empty state over it is what made the example vanish a second after
+        # they asked for it.
+        if snapshot["showing_demo"]:
+            data = demo.load()
+            if data:
+                return _demo_view(session, data, with_requirements=False)
+
         status = snapshot["status"]
         awaiting = status == "awaiting_feedback"
         state = snapshot["state"]
@@ -358,21 +397,10 @@ def build_ui() -> gr.Blocks:
         if not data:
             gr.Warning("No example is packaged with this build.")
             return refresh(session)
-        return (
-            _status_html("finished", ""),
-            demo.activity_log(),
-            demo.cost_table(),
-            demo.progress(),
-            demo.qa_findings(),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(interactive=True),
-            f"_{budget.status_line()}_",
-            gr.update(value=demo.archive(), visible=bool(demo.archive())),
-            gr.update(value=data["requirements"], interactive=True),
-            session,
-        )
+        # Recorded on the session so the poll timer redraws this view instead of
+        # replacing it. Cleared as soon as the visitor starts work of their own.
+        session.showing_demo = True
+        return _demo_view(session, data, with_requirements=True)
 
     def request_changes(feedback: str, session: RunSession | None):
         session = _ensure(session)

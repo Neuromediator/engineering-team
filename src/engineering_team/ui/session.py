@@ -120,6 +120,12 @@ class RunSession:
     question: str = ""
     notice: str = ""
 
+    # Whether this visitor is looking at the packaged example run rather than one of
+    # their own. It lives here, and not in the click handler, because the poll timer
+    # writes to the same components: without a flag the timer re-rendered this idle
+    # session about a second after the click and blanked the example.
+    showing_demo: bool = False
+
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _thread: threading.Thread | None = field(default=None, repr=False)
     _holds_run_lock: bool = field(default=False, repr=False)
@@ -134,12 +140,14 @@ class RunSession:
         with self._lock:
             status, error, question = self.status, self.error, self.question
             notice, flow = self.notice, self.flow
+            showing_demo = self.showing_demo
         state = flow.state if flow is not None else None
         return {
             "status": status,
             "error": error,
             "question": question,
             "notice": notice,
+            "showing_demo": showing_demo,
             "log": self.log.render(),
             "cost": self.recorder.total_cost(),
             "by_agent": self.recorder.by_agent(),
@@ -213,6 +221,14 @@ class RunSession:
         """
         if self.is_busy:
             return False
+
+        # Set before the early return below. The packaged example is not this session's
+        # work, so there is no flow to discard when it is all the visitor is looking at
+        # — but it is still what is on their screen, and a discard should stop showing
+        # it. Leaving this until after the guard made it depend on start() clearing the
+        # flag separately, which is true today and silently breaks the day it is not.
+        self._set(showing_demo=False)
+
         flow = self.flow
         if flow is None:
             return False
@@ -253,7 +269,13 @@ class RunSession:
         # Lets the flow's router stop before paying for another iteration.
         flow._cost_probe = self.recorder.total_cost
         self._set(
-            flow=flow, status="running", error="", question="", flow_id="", notice=""
+            flow=flow,
+            status="running",
+            error="",
+            question="",
+            flow_id="",
+            notice="",
+            showing_demo=False,
         )
         self.log.add("run", "flow", f"starting ({process or 'default'} process)")
 
@@ -282,7 +304,7 @@ class RunSession:
 
         marker = SHIP_MARKER if approve else REVISE_MARKER
         decision = "ship" if approve else "revise"
-        self._set(status="running", question="", notice="")
+        self._set(status="running", question="", notice="", showing_demo=False)
         # The request is the most consequential line in the log: it is what a reader
         # needs to connect the following iteration to. 60 characters cut it mid-sentence.
         shown = feedback if len(feedback) <= 400 else feedback[:400] + "…"
