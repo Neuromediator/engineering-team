@@ -150,6 +150,9 @@ $0.36 instead of $0.19; the frontend on `kimi-k2.6` would have pushed the run to
 live; the CLI disables pausing, so the human pause/resume round trip is unexercised; and the
 race supervisor is verified only against synthetic results.
 
+*The first two were settled later by the live E2B run on 2026-08-06 — see the phase 9 notes.
+The race supervisor is still synthetic-only.*
+
 ### Stack decisions
 
 - **Gradio 6** — already the sandbox's only dependency, deploys to HF Spaces in one push, and
@@ -319,11 +322,33 @@ screenshots too.
 the package was installed: a Space may resolve dependencies without ever running
 `pip install .`, and the failure would be a boot traceback with no other clue.
 
-**Two things this phase has not proved.** E2B has never run a *complete* crew — the backend
-is verified against the live service for files, execution, exit codes and the
-`CommandExitException` trap, but the first full build through it will be the first one ever.
-And `BUDGET_DAILY_USD` lives in SQLite on an ephemeral disk, so on Spaces it resets with the
+`BUDGET_DAILY_USD` lives in SQLite on an ephemeral disk, so on Spaces it resets with the
 container; `BUILD_PASSPHRASE` is the protection that actually holds there.
+
+#### First live E2B run, 2026-08-06 — most of the unproven list, proved at once
+
+A gym class-booking build on the deployed Space, `sandbox/1d5ac84a29b4`, sequential,
+$0.1196 to the human gate. It exercised five things that had until then only been argued
+for or tested against synthetic input:
+
+| Claim | How this run settled it |
+|---|---|
+| E2B can run a complete crew | It did — design through QA, 87 log lines |
+| An iteration may fail without crashing the run | Iteration 1 died on `Invalid response from LLM call - None or empty`; the run recorded it and continued |
+| The `revise` branch fires | It fired, off that failed iteration, carrying the blocker forward |
+| The cap halts the loop | `MAX_AUTO_ITERATIONS=2` stopped it at iteration 2 with a major finding outstanding |
+| The pause does not block | The flow paused for human feedback and the UI came back with the question |
+
+The QA Inspector earned its seat again: 23/23 tests passing, and it still refused the
+build over a real defect — waitlisted members not tracked in the conflict-detection map,
+so someone could sit on a waitlist and book an overlapping class through the guard.
+
+**And it exposed a hole nothing synthetic would have.** The gate asked a human to review a
+build while offering no download and no way to read a file: the archive was written in
+`deliver()`, which runs *after* the decision, so the source reached only those who had
+already approved it unseen. Worse here than locally — with E2B the files are on a remote
+microVM, so there was no directory to open instead. The export now runs before the gate as
+well as on delivery.
 
 The bug worth remembering from this phase: `with gr.Blocks(...) as demo:` made `demo` a
 local of `build_ui`, shadowing the `engineering_team.demo` module inside every handler in
@@ -416,8 +441,11 @@ looping, not to overrule someone watching it work.
 Gradio 6 moved `theme` off the `Blocks` constructor onto `launch()`; the app is warning-clean
 under `-W error::UserWarning`.
 
-**Not yet exercised live.** The UI builds, all panels render against synthetic state, and the
-flow graph is verified — but the full human-feedback round trip needs a paid run.
+**Exercised live on 2026-08-06**, on the deployed Space: the flow paused, `HumanFeedbackPending`
+propagated, and the UI came back with the question and an editable feedback box rather than
+blocking on stdin. See the phase 9 notes — the same run also showed the gate was asking for a
+judgement without providing anything to judge, which no amount of synthetic state would have
+surfaced.
 
 ### Phase 4 notes (complete)
 
