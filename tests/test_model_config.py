@@ -16,17 +16,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from engineering_team import model_config as mc  # noqa: E402
 
 
+def _agent_roles() -> set[str]:
+    """The roles that actually exist, read from the agent definitions."""
+    config = Path(__file__).resolve().parents[1] / "src/engineering_team/config"
+    text = (config / "agents.yaml").read_text(encoding="utf-8")
+    return {
+        line.split(":", 1)[0]
+        for line in text.splitlines()
+        if line and not line[0].isspace() and not line.startswith("#") and ":" in line
+    }
+
+
 class RoleAssignmentTest(unittest.TestCase):
-    def test_all_four_roles_have_a_model(self):
-        self.assertEqual(
-            set(mc.models()),
-            {
-                "engineering_lead",
-                "backend_engineer",
-                "frontend_engineer",
-                "test_engineer",
-            },
-        )
+    def test_every_agent_has_a_model(self):
+        """Every role in agents.yaml must be assigned a model, and no more than that.
+
+        Derived from agents.yaml rather than a hardcoded list. The previous version named
+        four roles literally and went red the moment the QA Inspector was added in phase
+        3 — a test that fails for doing the thing the roadmap says to do next teaches
+        people to ignore it. This one stays quiet when a role is added and fails only
+        when one is added *without* a model, which is the mistake worth catching: an
+        unassigned role raises at crew construction, after the run has been paid for.
+        """
+        self.assertEqual(set(mc.models()), _agent_roles())
 
     def test_unknown_role_is_rejected(self):
         with self.assertRaises(KeyError) as ctx:

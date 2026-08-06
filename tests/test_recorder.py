@@ -25,8 +25,19 @@ from engineering_team.observability.recorder import (  # noqa: E402
 FLASH = "openrouter/deepseek/deepseek-v4-flash-0731"  # $0.09 / $0.18 per M
 PRO = "openrouter/deepseek/deepseek-v4-pro"  # $0.435 / $0.870 per M
 
+# Verbatim `role:` values from config/agents.yaml. The bus delivers these sentences, not
+# tidy labels, and the backend one mentioning "engineering lead" is the whole reason the
+# short-name patterns are order-sensitive.
+BACKEND_ROLE = (
+    "Python Backend Engineer who can write code to achieve the design described by"
+    " the engineering lead"
+)
+TEST_ROLE = (
+    "An engineer with python coding skills who can write unit tests for the given code,"
+)
 
-def _event(model=FLASH, agent_role="Backend Engineer", usage=None):
+
+def _event(model=FLASH, agent_role=BACKEND_ROLE, usage=None):
     return SimpleNamespace(
         model=model,
         agent_role=agent_role,
@@ -62,9 +73,49 @@ class UsageParsingTest(unittest.TestCase):
         call = CostListener._to_call(_event(agent_role=None))
         self.assertEqual(call.agent_role, UNKNOWN_AGENT)
 
-    def test_multiline_role_is_collapsed_to_first_line(self):
-        call = CostListener._to_call(_event(agent_role="Backend Engineer\nwho writes code\n"))
-        self.assertEqual(call.agent_role, "Backend Engineer")
+    def test_real_role_sentences_map_to_short_names(self):
+        """The recorder labels calls with the short name, not the role sentence.
+
+        These are the actual `role:` values from agents.yaml, because the trap this
+        guards lives in their wording. The backend engineer's role reads "…to achieve
+        the design described by the engineering lead" — it *contains* "engineering
+        lead". With the patterns matched in the wrong order every backend call is
+        relabelled as the Lead, and the cost panel shows a run where the backend
+        engineer never worked. Invented labels like "Backend Engineer" cannot catch
+        that, which is why the previous version of this test did not.
+        """
+        for role, expected in (
+            (
+                "Python Backend Engineer who can write code to achieve the design"
+                " described by the engineering lead",
+                "Backend",
+            ),
+            (
+                "Engineering Lead for the engineering team, directing the work of the"
+                " engineers",
+                "Engineering Lead",
+            ),
+            (
+                "An engineer with python coding skills who can write unit tests for the"
+                " given code,",
+                "Test Engineer",
+            ),
+            (
+                "Quality Inspector who independently verifies that the delivered code"
+                " meets the requirements",
+                "QA Inspector",
+            ),
+        ):
+            with self.subTest(expected=expected):
+                call = CostListener._to_call(_event(agent_role=role))
+                self.assertEqual(call.agent_role, expected)
+
+    def test_unrecognised_multiline_role_degrades_to_its_first_words(self):
+        """An unknown role must not become a cut-off sentence in the cost table."""
+        call = CostListener._to_call(
+            _event(agent_role="Marketing Intern Extraordinaire\nwho writes copy\n")
+        )
+        self.assertEqual(call.agent_role, "Marketing Intern Extraordinaire")
 
 
 class CostAggregationTest(unittest.TestCase):
@@ -82,14 +133,22 @@ class CostAggregationTest(unittest.TestCase):
         self.assertAlmostEqual(self.recorder.total_cost(), 0.00036)
 
     def test_grouping_by_agent(self):
-        _record(self.recorder, agent_role="Backend Engineer")
-        _record(self.recorder, agent_role="Backend Engineer")
-        _record(self.recorder, agent_role="Test Engineer")
+        """Calls group under the short name the panel displays.
+
+        Keyed on the real role sentences for the same reason as above: the backend one
+        mentions the engineering lead, so a grouping bug would silently move its spend
+        onto another row rather than lose it — the kind of error a totals check passes
+        straight over.
+        """
+        _record(self.recorder, agent_role=BACKEND_ROLE)
+        _record(self.recorder, agent_role=BACKEND_ROLE)
+        _record(self.recorder, agent_role=TEST_ROLE)
 
         by_agent = self.recorder.by_agent()
-        self.assertEqual(by_agent["Backend Engineer"].calls, 2)
+        self.assertEqual(set(by_agent), {"Backend", "Test Engineer"})
+        self.assertEqual(by_agent["Backend"].calls, 2)
         self.assertEqual(by_agent["Test Engineer"].calls, 1)
-        self.assertEqual(by_agent["Backend Engineer"].prompt_tokens, 2000)
+        self.assertEqual(by_agent["Backend"].prompt_tokens, 2000)
 
     def test_grouping_by_model(self):
         _record(self.recorder, model=FLASH)
