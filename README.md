@@ -6,7 +6,7 @@ colorTo: purple
 sdk: gradio
 sdk_version: 6.22.0
 app_file: app.py
-python_version: "3.12"
+python_version: "3.12.12"
 pinned: false
 license: mit
 short_description: Plain-English requirements to a tested Python product
