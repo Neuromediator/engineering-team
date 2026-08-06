@@ -267,7 +267,10 @@ class RunSession:
         marker = SHIP_MARKER if approve else REVISE_MARKER
         decision = "ship" if approve else "revise"
         self._set(status="running", question="", notice="")
-        self.log.add("run", "human", f"{decision}: {feedback[:60]}")
+        # The request is the most consequential line in the log: it is what a reader
+        # needs to connect the following iteration to. 60 characters cut it mid-sentence.
+        shown = feedback if len(feedback) <= 400 else feedback[:400] + "…"
+        self.log.add("run", "human", f"{decision}: {shown}")
         clear_pending(flow_id)
 
         def resume() -> None:

@@ -97,11 +97,15 @@ class RunLog:
         self._lock = threading.Lock()
 
     def add(self, kind: str, actor: object, message: str) -> None:
+        # One entry must render as exactly one line. A message containing newlines —
+        # a pasted multi-line request, a traceback — otherwise spills into rows with no
+        # timestamp or actor, breaking the column grid. The panel scrolls horizontally,
+        # so a long single line is fine; a wrapped one is not.
         line = LogLine(
             at=datetime.now(timezone.utc),
             kind=kind,
             actor=_first_line(actor, 16),
-            message=message,
+            message=" ".join(str(message).split()),
         )
         with self._lock:
             self._lines.append(line)
