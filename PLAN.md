@@ -171,7 +171,7 @@ race supervisor is verified only against synthetic results.
 | 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | **done** |
 | 7 | Parallel supervisor — variant racing + ranking | **done** |
 | 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | **done** |
-| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | prepared |
+| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | **done** |
 | 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | **done** (README) |
 
 Phases are numbered in the order they are actually built. The original Phase 2 bundled three
@@ -237,7 +237,53 @@ whole still comes from the recorder.
 A race multiplies spend, so `variants` is an explicit argument and the per-variant iteration
 cap is tightened to 2.
 
-### Phase 9 notes (prepared; not yet live)
+### Phase 9 notes (live)
+
+Deployed at
+[Neuromediator/engineering-team](https://huggingface.co/spaces/Neuromediator/engineering-team),
+source at [github.com/Neuromediator/engineering-team](https://github.com/Neuromediator/engineering-team).
+
+**Publishing is a git push, not `gradio deploy`.** That command calls `upload_folder()`
+with no `ignore_patterns` (`deploy_space.py:313`), and `upload_folder`'s own docstring
+states the `.gitignore` is not taken into account — so it would publish `.env`. No file
+could have fixed that. A Space is a git repo, so adding it as a second remote makes
+`.gitignore` the single exclusion rule for both destinations, which is what
+`make_space.sh` was approximating by staging a clean directory.
+
+**The ignore rule was wrong, and only git push could reveal it.** `sandbox/` is
+unanchored, so git matched that directory name at *any* depth — including
+`src/engineering_team/tools/sandbox/`. Phase 8's entire deliverable had never been
+committed, and the first boot died on `ModuleNotFoundError: No module named
+'engineering_team.tools.sandbox'`. Any clone of the repo was equally broken. It stayed
+hidden because `make_space.sh` staged with `cp -r`, which copies what git ignores: the
+two publication paths disagreed and only one was ever exercised. The rule is now
+`/sandbox/`.
+
+**Spaces reads `requirements.txt`, not `pyproject.toml`** — settled by the builder's own
+Dockerfile rather than by argument:
+
+    RUN --mount=target=/tmp/requirements.txt,source=requirements.txt \
+        pip install --no-cache-dir -r /tmp/requirements.txt ...
+
+No `pip install .`, no build backend. `pyproject.toml` *is* honoured on Spaces, but only
+where a Docker SDK image runs `uv` itself — which is what every pyproject-only Space
+found turns out to be. `gradio` is correctly absent from the file: the image installs
+`gradio[oauth,mcp]==6.22.0` from `sdk_version`.
+
+**Hosting is ZeroGPU because cpu-basic now returns 402.** "Static Spaces are free for
+everyone, but hosting Gradio and Docker Spaces on free cpu-basic requires a PRO
+subscription." Spaces created before that policy are grandfathered, which makes an
+existing free cpu-basic Space misleading evidence. A free account may host two ZeroGPU
+Spaces, and ZeroGPU is Gradio-only, so it is the only free tier this app fits. It refuses
+to start without at least one `@spaces.GPU` function, so `app.py` carries a no-op — never
+called, no quota consumed, since every model call leaves over HTTPS. `python_version` is
+pinned to `3.12.12`; ZeroGPU accepts only that and `3.10.13`, and the default is `3.10`.
+
+Verified live rather than assumed running: the boot log is clean, `view_api` lists the
+real endpoints, and `/show_demo` returns the genuine cost table, QA verdict and a working
+source download.
+
+### Phase 9 notes (original plan)
 
 A public Space cannot open on a 20–50 minute build that spends the owner's credit, so it
 opens on a **real completed run** instead — the gym class-booking build, $0.2388 over two
