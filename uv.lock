@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "4c625cade498",
+    "6872feacf47e",
     "709d1ef9a12d",
     "a5e6e01ff759",
     "ed33eb37f802",
@@ -27,6 +28,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "gradio", specifier = ">=6.22.0" }]
+
+[[package]]
+name = "6872feacf47e"
+version = "0.1.0"
+source = { virtual = "sandbox/6872feacf47e" }
+dependencies = [
+    { name = "gradio" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gradio", specifier = ">=6.22.0" },
+    { name = "pandas", specifier = ">=3.0.5" },
+]
 
 [[package]]
 name = "709d1ef9a12d"

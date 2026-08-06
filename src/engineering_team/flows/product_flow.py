@@ -180,6 +180,18 @@ class ProductFlow(Flow[ProductState]):
             sandbox.close()
             self._sandbox = None
 
+    def _run_crew(self, sandbox):
+        """One crew pass. Split out so :meth:`build` can guard it."""
+        return EngineeringTeam(
+            sandbox=sandbox, process=self.state.process or None
+        ).crew().kickoff(
+            inputs={
+                "requirements": self.state.requirements,
+                "revision_notes": self.state.notes_for_prompt(),
+                "constraints": CONSTRAINTS_PROMPT,
+            }
+        )
+
     @start("revise")
     def build(self) -> str:
         """Run the hierarchical crew. Re-entered on "revise" with feedback in state."""
@@ -194,15 +206,30 @@ class ProductFlow(Flow[ProductState]):
         if self.state.iteration == 1:
             sandbox.reset()
 
-        result = EngineeringTeam(
-            sandbox=sandbox, process=self.state.process or None
-        ).crew().kickoff(
-            inputs={
-                "requirements": self.state.requirements,
-                "revision_notes": self.state.notes_for_prompt(),
-                "constraints": CONSTRAINTS_PROMPT,
-            }
-        )
+        try:
+            result = self._run_crew(sandbox)
+        except Exception as exc:  # noqa: BLE001 - an iteration may fail; a run must not
+            # A crew that raises — an agent hitting its wall-clock backstop, a provider
+            # error — is a failed *iteration*, not a crashed run. Treating it as fatal
+            # threw away a completed iteration's work and left the human nothing to act
+            # on. Record it, let evaluate() decide whether another attempt is affordable.
+            reason = f"{type(exc).__name__}: {exc}"
+            print(f"\nIteration {self.state.iteration} failed: {reason}")
+            self.state.qa_report = None
+            self.state.history.append(
+                IterationRecord(
+                    iteration=self.state.iteration,
+                    passed=False,
+                    blocking_findings=0,
+                    tests_passed=False,
+                    summary=f"The build did not complete: {reason[:400]}",
+                )
+            )
+            self.state.revision_notes.append(
+                f"[blocker] The previous attempt failed before finishing ({reason[:200]}). "
+                f"Work in smaller steps and re-run the tests as you go."
+            )
+            return "built"
 
         usage = getattr(result, "token_usage", None)
         if usage is not None:

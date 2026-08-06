@@ -21,10 +21,16 @@ from .tools.sandbox_tools import Sandbox
 MANAGER_MAX_ITER = 12
 WORKER_MAX_ITER = 15
 
-# The bound that was missing entirely. Seconds of wall clock per agent execution; the
-# agent is stopped when it expires instead of thinking indefinitely.
-MANAGER_TIME_LIMIT = 900
-WORKER_TIME_LIMIT = 420
+# Seconds of wall clock per agent execution. This is a backstop against an agent
+# thinking forever, NOT a performance target.
+#
+# 420s was measured to be too tight: a backend engineer revising a booking system to add
+# persistence and fix an overlap bug ran ~471s of legitimate work and was killed, which
+# CrewAI surfaces as a fatal task failure. The caps are now generous enough that hitting
+# one means something is genuinely wrong, and ProductFlow.build() treats a crew failure
+# as a failed iteration rather than a crashed run.
+MANAGER_TIME_LIMIT = 1500
+WORKER_TIME_LIMIT = 900
 
 # 30 was throttling without protecting anything — OpenRouter is nowhere near that limit,
 # and the sleeps just stretched the run.
