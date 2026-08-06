@@ -144,7 +144,7 @@ class ActivityListener(BaseEventListener):
             self.log.add(
                 "task",
                 getattr(event, "task_name", None) or "task",
-                f"FAILED: {_first_line(getattr(event, 'error', ''))}",
+                f"FAILED: {_first_line(getattr(event, 'error', ''), 300)}",
             )
 
         @event_bus.on(AgentExecutionStartedEvent)
@@ -158,7 +158,7 @@ class ActivityListener(BaseEventListener):
         @event_bus.on(AgentExecutionErrorEvent)
         def _agent_error(_source, event) -> None:
             self.log.add(
-                "agent", _role(event), f"ERROR: {_first_line(getattr(event, 'error', ''))}"
+                "agent", _role(event), f"ERROR: {_first_line(getattr(event, 'error', ''), 300)}"
             )
 
         # Only the finished event is logged. Logging both start and finish doubled every
@@ -173,8 +173,11 @@ class ActivityListener(BaseEventListener):
             self.log.add(
                 "tool",
                 _role(event),
+                # 300, not the 90 default: a truncated error is exactly the one thing
+                # a reader needs in full. "arguments validation failed: 1 validation
+                # error for Wri…" tells nobody anything.
                 f"✗ {getattr(event, 'tool_name', '?')} — "
-                f"{_first_line(getattr(event, 'error', ''))}",
+                f"{_first_line(getattr(event, 'error', ''), 300)}",
             )
 
 

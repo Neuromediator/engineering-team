@@ -14,8 +14,10 @@ members = [
     "6872feacf47e",
     "709d1ef9a12d",
     "a5e6e01ff759",
+    "e740f20bcd91",
     "ed33eb37f802",
     "engineering-team",
+    "fdf511247c40",
     "sandbox",
 ]
 
@@ -760,6 +762,17 @@ wheels = [
 ]
 
 [[package]]
+name = "e740f20bcd91"
+version = "0.1.0"
+source = { virtual = "sandbox/e740f20bcd91" }
+dependencies = [
+    { name = "gradio" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "gradio", specifier = ">=6.22.0" }]
+
+[[package]]
 name = "ed33eb37f802"
 version = "0.1.0"
 source = { virtual = "sandbox/ed33eb37f802" }
@@ -815,6 +828,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/8a/02/91e3416a8fdd715ab
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/03/10388a42375ee7e4ac9b94eb2c5c569c8b5795e377e701c9ac3ad63de890/fastapi-0.141.1-py3-none-any.whl", hash = "sha256:bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3", size = 131954, upload-time = "2026-07-29T17:18:04.364Z" },
 ]
+
+[[package]]
+name = "fdf511247c40"
+version = "0.1.0"
+source = { virtual = "sandbox/fdf511247c40" }
+dependencies = [
+    { name = "gradio" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "gradio", specifier = ">=6.22.0" }]
 
 [[package]]
 name = "filelock"

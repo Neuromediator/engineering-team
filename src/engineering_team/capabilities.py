@@ -50,13 +50,16 @@ Environment and constraints:
 - Nothing may block: no servers, no `.launch()` in code that gets executed, no `input()`,
   no infinite loops. Anything that blocks will be killed and reported as a failure.
 
-File discipline — the deliverable is exactly these files, and no others:
+File discipline — the deliverable is exactly these files:
 - one backend module, `app.py` for the Gradio UI, one test file, and `_validate.py`
   which imports app.py and checks the Blocks constructs.
 - `app.py` must expose the Blocks object as a module-level `demo`, and end with
   `if __name__ == "__main__": demo.launch()`. The guard is what keeps it safe: importing
   the module (as `_validate.py` does) never starts a server, while running the file
   directly does. Never call `.launch()` at import time.
+- NEVER run `app.py` with the run tool. That guard starts a real web server, which blocks
+  until it is killed and wastes the whole execution timeout. To check the UI, run
+  `_validate.py`, which imports app.py and inspects `demo` without launching anything.
 - Do NOT create extra scratch or verification scripts. If you need to check something,
   put the check in the existing test file and run that, or overwrite `_validate.py`.
   Files named like `_check.py`, `_check2.py`, `_runner.py`, `manual_check.py` or
@@ -64,6 +67,9 @@ File discipline — the deliverable is exactly these files, and no others:
   file instead, where it stays useful.
 - Reuse the same filenames. Two files testing the same module means neither is the
   test suite.
+- `design.md`, `test_summary.md` and `qa_report.json` are written by the system itself,
+  not by you. They belong in the sandbox and are NOT extra files — do not report them as
+  violations and do not delete them.
 - When the tests pass and the UI validates, you are done. Stop and report; do not keep
   looking for more things to verify.
 """

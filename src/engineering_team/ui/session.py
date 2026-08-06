@@ -123,6 +123,7 @@ class RunSession:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _thread: threading.Thread | None = field(default=None, repr=False)
     _holds_run_lock: bool = field(default=False, repr=False)
+    _recorded_usd: float = field(default=0.0, repr=False)
 
     def __post_init__(self) -> None:
         install_listeners()
@@ -168,6 +169,20 @@ class RunSession:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
+    def _bank_spend(self) -> float:
+        """Record what this run has cost since the last time we banked it.
+
+        Called when a run finishes, fails, AND when it pauses for feedback. Recording
+        only at the end meant a paused run's cost was invisible to the daily ceiling —
+        and a visitor who never answered was never charged for the work at all.
+        """
+        total = self.recorder.total_cost()
+        delta = total - self._recorded_usd
+        if delta <= 0:
+            return budget.spent_today()
+        self._recorded_usd = total
+        return budget.record(delta)
+
     # -- the shared run lock ------------------------------------------------------
 
     def _acquire_run_lock(self) -> bool:
@@ -211,6 +226,7 @@ class RunSession:
 
         self.log.reset()
         self.recorder.reset()
+        self._recorded_usd = 0.0
         self._set(
             flow=None, status="idle", error="", question="", flow_id="", notice=""
         )
@@ -293,6 +309,7 @@ class RunSession:
             except Exception as exc:  # noqa: BLE001 - surfaced to the UI, not swallowed
                 self.log.add("run", "flow", f"FAILED: {exc}")
                 self._set(status="failed", error=traceback.format_exc())
+                self._bank_spend()
                 self._release_run_lock()
                 return
 
@@ -305,11 +322,11 @@ class RunSession:
                 return
 
             self.recorder.settle()
-            total = budget.record(self.recorder.total_cost())
+            today = self._bank_spend()
             self.log.add(
                 "run",
                 "budget",
-                f"run cost ${self.recorder.total_cost():.4f}; today ${total:.2f}",
+                f"run cost ${self.recorder.total_cost():.4f}; today ${today:.2f}",
             )
             self.log.add("run", "flow", "finished")
             self._set(status="finished")
@@ -326,6 +343,10 @@ class RunSession:
         )
         message = getattr(context, "message", "") or "Feedback requested."
         self.recorder.settle()
+        today = self._bank_spend()
+        self.log.add(
+            "run", "budget", f"so far ${self.recorder.total_cost():.4f}; today ${today:.2f}"
+        )
         self.log.add("run", "flow", "paused for human feedback")
         self._set(status="awaiting_feedback", flow_id=flow_id, question=message)
         # Released while waiting: a visitor who never answers must not block everyone.
