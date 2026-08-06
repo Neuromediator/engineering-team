@@ -171,8 +171,8 @@ race supervisor is verified only against synthetic results.
 | 6 | Per-run sandbox isolation — `sandbox/<run_id>/`, concurrency-safe tools | **done** |
 | 7 | Parallel supervisor — variant racing + ranking | **done** |
 | 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | **done** |
-| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | next |
-| 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | |
+| 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | prepared |
+| 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | **done** (README) |
 
 Phases are numbered in the order they are actually built. The original Phase 2 bundled three
 things that turned out to belong at three different times — execution feedback was urgent
@@ -236,6 +236,35 @@ whole still comes from the recorder.
 
 A race multiplies spend, so `variants` is an explicit argument and the per-variant iteration
 cap is tightened to 2.
+
+### Phase 9 notes (prepared; not yet live)
+
+A public Space cannot open on a 20–50 minute build that spends the owner's credit, so it
+opens on a **real completed run** instead — the gym class-booking build, $0.2388 over two
+iterations, with its genuine QA report and downloadable source. Nothing is mocked,
+including the human feedback round that fixed a waitlist-promotion overlap bug.
+
+| Setting | Deployed value | Why |
+|---|---|---|
+| `SANDBOX_BACKEND` | `e2b` | Spaces has no Docker daemon |
+| `MAX_AUTO_ITERATIONS` | `2` | a gym build used its full budget of 3 and took most of an hour |
+| `BUILD_PASSPHRASE` | set | live builds cost the owner money; the UI stays fully browsable |
+| `BUDGET_DAILY_USD` | `2` | backstop — but see the caveat below |
+
+`app.py` at the repository root puts `src/` on `sys.path` explicitly rather than assuming
+the package was installed: a Space may resolve dependencies without ever running
+`pip install .`, and the failure would be a boot traceback with no other clue.
+
+**Two things this phase has not proved.** E2B has never run a *complete* crew — the backend
+is verified against the live service for files, execution, exit codes and the
+`CommandExitException` trap, but the first full build through it will be the first one ever.
+And `BUDGET_DAILY_USD` lives in SQLite on an ephemeral disk, so on Spaces it resets with the
+container; `BUILD_PASSPHRASE` is the protection that actually holds there.
+
+The bug worth remembering from this phase: `with gr.Blocks(...) as demo:` made `demo` a
+local of `build_ui`, shadowing the `engineering_team.demo` module inside every handler in
+that scope. `demo.load()` was calling `Blocks.load()` and returning something falsy, so the
+demo button silently did nothing — no error, no warning. The Blocks object is now `page`.
 
 ### Phase 8 notes (complete)
 
