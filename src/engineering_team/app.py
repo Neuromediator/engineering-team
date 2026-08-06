@@ -311,6 +311,7 @@ def build_ui() -> gr.Blocks:
             _qa_findings(snapshot),
             gr.update(visible=awaiting, label=snapshot["question"] or "Your feedback"),
             gr.update(visible=awaiting),
+            gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             f"_{budget.status_line()}_",
             gr.update(value=archive, visible=bool(archive)),
@@ -333,9 +334,17 @@ def build_ui() -> gr.Blocks:
             gr.Warning(session.snapshot()["notice"])
         return refresh(session)
 
-    def send_feedback(feedback: str, session: RunSession | None):
+    def request_changes(feedback: str, session: RunSession | None):
         session = _ensure(session)
-        session.submit_feedback(feedback or "")
+        if not (feedback or "").strip():
+            gr.Warning("Describe what you want changed, then request changes.")
+            return refresh(session)
+        session.submit_feedback(feedback, approve=False)
+        return refresh(session)
+
+    def approve_and_ship(feedback: str, session: RunSession | None):
+        session = _ensure(session)
+        session.submit_feedback(feedback or "", approve=True)
         return refresh(session)
 
     # Gradio 6 moved `theme` off the Blocks constructor onto launch().
@@ -415,21 +424,31 @@ def build_ui() -> gr.Blocks:
 
         feedback_box = gr.Textbox(
             label="Your feedback", lines=3, visible=False,
-            placeholder="Say what to change, or that it looks good.",
+            placeholder="Describe what you want changed.",
         )
-        feedback_button = gr.Button("Send feedback", variant="primary", visible=False)
+        # Two buttons, not one. The decision is the person's, so the interface records
+        # it directly — an earlier version sent one free-text answer and asked an LLM to
+        # infer intent, which shipped a build whose feedback plainly asked for changes.
+        with gr.Row():
+            revise_button = gr.Button(
+                "Request changes", variant="primary", visible=False
+            )
+            ship_button = gr.Button("Approve & ship", visible=False)
 
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
-            feedback_box, feedback_button, run_button, budget_box, download_box,
-            session_state,
+            feedback_box, revise_button, ship_button, run_button, budget_box,
+            download_box, session_state,
         ]
 
         run_button.click(
             start, inputs=[requirements, process_choice, session_state], outputs=outputs
         )
-        feedback_button.click(
-            send_feedback, inputs=[feedback_box, session_state], outputs=outputs
+        revise_button.click(
+            request_changes, inputs=[feedback_box, session_state], outputs=outputs
+        )
+        ship_button.click(
+            approve_and_ship, inputs=[feedback_box, session_state], outputs=outputs
         )
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
         clear_button.click(lambda: "", outputs=requirements)

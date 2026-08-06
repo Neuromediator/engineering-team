@@ -31,6 +31,7 @@ from crewai.flow.async_feedback.types import HumanFeedbackPending
 
 from .. import budget
 from ..flows import ProductFlow
+from ..flows.product_flow import REVISE_MARKER, SHIP_MARKER
 from ..observability.recorder import CostListener, RunRecorder
 from ..observability.stream import ActivityListener, RunLog
 from ..tools.sandbox_tools import SANDBOX_ROOT
@@ -246,8 +247,14 @@ class RunSession:
             )
         )
 
-    def submit_feedback(self, feedback: str) -> None:
-        """Resume a paused flow with this visitor's answer."""
+    def submit_feedback(self, feedback: str, approve: bool = False) -> None:
+        """Resume a paused flow with this visitor's answer.
+
+        ``approve`` is the decision the person actually made by choosing a button. It is
+        sent as a marker rather than left for a model to infer from their wording — an
+        earlier version asked an LLM to classify the text and shipped a build whose
+        feedback plainly asked for changes.
+        """
         with self._lock:
             if self.status != "awaiting_feedback":
                 return
@@ -257,8 +264,10 @@ class RunSession:
             self._set(notice=BUSY_MESSAGE)
             return
 
+        marker = SHIP_MARKER if approve else REVISE_MARKER
+        decision = "ship" if approve else "revise"
         self._set(status="running", question="", notice="")
-        self.log.add("run", "human", f"feedback: {feedback[:60]}")
+        self.log.add("run", "human", f"{decision}: {feedback[:60]}")
         clear_pending(flow_id)
 
         def resume() -> None:
@@ -266,7 +275,7 @@ class RunSession:
             # a process restart, which is the point of persisting the pause.
             flow = ProductFlow.from_pending(flow_id)
             self._set(flow=flow)
-            flow.resume(feedback)
+            flow.resume(f"{marker} {feedback}".strip())
 
         self._spawn(resume)
 

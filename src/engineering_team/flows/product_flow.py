@@ -30,7 +30,6 @@ from pydantic import BaseModel, Field
 from ..budget import run_limit
 from ..capabilities import CONSTRAINTS_PROMPT
 from ..crew import EngineeringTeam
-from ..model_config import llm_for
 from ..schemas import QAReport
 from ..tools.sandbox_tools import SANDBOX_ROOT, Sandbox, new_run_id
 from ..ui.feedback_provider import PendingUIFeedbackProvider
@@ -39,6 +38,21 @@ from ..ui.feedback_provider import PendingUIFeedbackProvider
 # The cost ceiling. Each iteration is a full hierarchical crew run, so this number is
 # the difference between a bounded demo and an unbounded bill.
 MAX_AUTO_ITERATIONS = 3
+
+# The UI states the human's decision explicitly by prefixing their feedback with one of
+# these. It is a sentinel, not natural language, because the branch must be decided by
+# reading a marker the interface set — never by asking a model to interpret prose.
+SHIP_MARKER = "[[SHIP]]"
+REVISE_MARKER = "[[REVISE]]"
+
+
+def strip_marker(feedback: str) -> str:
+    """Return the human's actual words, without the decision sentinel."""
+    text = (feedback or "").strip()
+    for marker in (SHIP_MARKER, REVISE_MARKER):
+        if text.startswith(marker):
+            return text[len(marker):].strip()
+    return text
 
 # Finished source is archived here so it outlives the sandbox.
 EXPORTS_DIR = SANDBOX_ROOT.parent / "exports"
@@ -132,7 +146,7 @@ class ProductFlow(Flow[ProductState]):
             return
 
         for result in new:
-            text = (getattr(result, "feedback", "") or "").strip()
+            text = strip_marker(getattr(result, "feedback", "") or "")
             if text:
                 self.state.revision_notes.append(f"[human] {text}")
 
@@ -286,13 +300,12 @@ class ProductFlow(Flow[ProductState]):
             "Review the build. Reply with what you want changed, or say it looks good "
             "to ship it."
         ),
-        emit=["ship", "revise"],
-        # The decorator defaults this to "gpt-5.4-mini", which would route to OpenAI —
-        # a key this project does not use and a fourth model outside the chosen three.
-        llm=llm_for("engineering_lead"),
-        # If nobody answers (a headless run, or a UI that went away), ship what we have
-        # rather than hanging or silently looping.
-        default_outcome="ship",
+        # Deliberately NO `emit`. With emit, CrewAI collapses the human's free text into
+        # an outcome using an LLM — and it got it wrong: "Reject invalid input in the
+        # backend, not just the UI" was classified as "ship" and the build was delivered
+        # unchanged. That is precisely the failure this project claims to avoid: never
+        # parse prose to make a control-flow decision. The interface already knows what
+        # the person clicked, so :meth:`decide` reads that instead of inferring it.
         provider=PendingUIFeedbackProvider(),
     )
     def human_review(self) -> dict:
@@ -314,6 +327,22 @@ class ProductFlow(Flow[ProductState]):
                 for f in (report.blocking_findings if report else [])
             ],
         }
+
+    @router(human_review)
+    def decide(self) -> str:
+        """Route on the marker the UI set, not on what the feedback appears to mean."""
+        latest = getattr(self, "last_human_feedback", None)
+        feedback = (getattr(latest, "feedback", "") or "").strip()
+
+        if feedback.startswith(REVISE_MARKER):
+            return "revise"
+        if feedback.startswith(SHIP_MARKER):
+            return "ship"
+
+        # No marker: a headless run, or a UI that went away without answering. Empty
+        # feedback ships what exists; anything else is treated as a change request,
+        # because silently shipping a build somebody commented on is the worse mistake.
+        return "ship" if not strip_marker(feedback) else "revise"
 
     @listen("ship")
     def deliver(self) -> str:
