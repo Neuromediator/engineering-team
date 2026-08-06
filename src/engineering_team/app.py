@@ -431,6 +431,11 @@ def build_ui() -> gr.Blocks:
             "</div>"
         )
 
+        # Whether this deployment requires a key to start a live build. Read once here
+        # rather than per component, so the field, its wording and the button emphasis
+        # below cannot disagree about which deployment they are describing.
+        gated = bool(budget.build_passphrase())
+
         # Reference material spans the full width and starts closed: in a narrow column
         # its tables wrapped mid-word, and open by default it pushed the input offscreen.
         with gr.Accordion("What this team can build — worth reading first", open=False):
@@ -446,11 +451,23 @@ def build_ui() -> gr.Blocks:
                     # nature — so Ctrl/Cmd+Enter submits, which is the usual convention.
                     info="Ctrl+Enter to build. The box locks while a build is running.",
                 )
+                # Gated deployments must say so before the click, not after it. The old
+                # label read "Build key" over an empty box with "Live builds are limited
+                # on the public deployment" beneath — which never says the field is
+                # required, that a visitor almost certainly cannot fill it, or what to do
+                # instead. The failure arrived as a warning after typing requirements and
+                # pressing the primary button, which is the worst moment to learn it.
                 passphrase = gr.Textbox(
-                    label="Build key",
+                    label="Build key — needed to start a live build here",
                     type="password",
-                    visible=bool(budget.build_passphrase()),
-                    info="Live builds are limited on the public deployment.",
+                    visible=gated,
+                    placeholder='No key? Use "Show a finished run" — it needs nothing.',
+                    info=(
+                        "A live build spends the owner's money and takes 20–50 minutes, "
+                        "so starting one on the public deployment is gated. Everything "
+                        "else is open: the packaged run below is a real build, with its "
+                        "own cost table, QA report and downloadable source."
+                    ),
                 )
                 process_choice = gr.Radio(
                     choices=list(VALID_PROCESSES),
@@ -463,9 +480,22 @@ def build_ui() -> gr.Blocks:
                         "predictable — which is the finding."
                     ),
                 )
+                # Emphasis follows what the visitor can actually do. Gated, "Build it" is
+                # a button almost nobody in the audience can use, so making it the primary
+                # call to action invites the one interaction guaranteed to fail. Ungated
+                # (local development) the emphasis flips back, because then building is
+                # exactly the point.
                 with gr.Row():
-                    run_button = gr.Button("Build it", variant="primary", scale=2)
-                    demo_button = gr.Button("Show a finished run", scale=2)
+                    run_button = gr.Button(
+                        "Build it",
+                        variant="secondary" if gated else "primary",
+                        scale=2,
+                    )
+                    demo_button = gr.Button(
+                        "Show a finished run",
+                        variant="primary" if gated else "secondary",
+                        scale=2,
+                    )
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
