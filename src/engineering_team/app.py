@@ -397,6 +397,10 @@ def build_ui() -> gr.Blocks:
                 download_box = gr.File(
                     label="Finished source", visible=False, interactive=False
                 )
+                gr.Markdown(
+                    "_Download it while you are here — the files are deleted when you "
+                    "reload the page or start another build._"
+                )
 
         feedback_box = gr.Textbox(
             label="Your feedback", lines=3, visible=False,
@@ -418,6 +422,13 @@ def build_ui() -> gr.Blocks:
 
         # The flow runs on a background thread; this is how its progress reaches the page.
         gr.Timer(POLL_SECONDS).tick(refresh, outputs=outputs)
+
+        def on_page_load():
+            # A reload ends the previous result's life; a run in flight is left alone.
+            session.discard()
+            return refresh()
+
+        demo.load(on_page_load, outputs=outputs)
 
     return demo
 

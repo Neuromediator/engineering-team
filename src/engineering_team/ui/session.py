@@ -7,8 +7,10 @@ touch is guarded, because the flow thread writes while the request thread reads.
 
 from __future__ import annotations
 
+import shutil
 import threading
 import traceback
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -18,6 +20,7 @@ from .. import budget
 from ..flows import ProductFlow
 from ..observability.recorder import CostListener, RunRecorder
 from ..observability.stream import ActivityListener, RunLog
+from ..tools.sandbox_tools import SANDBOX_ROOT
 from .feedback_provider import clear_pending, enable_pausing
 
 
@@ -89,10 +92,41 @@ class RunSession:
 
     # -- driving the flow ---------------------------------------------------------
 
+    def discard(self) -> bool:
+        """Delete the previous run's workspace and its archive.
+
+        Deployed, this is a privacy and disk property rather than a nicety: a visitor's
+        requirements and generated source should not outlive their visit, and a Space
+        has a small ephemeral disk. Called when a new build starts and when the page is
+        reloaded, so output lives exactly as long as the tab that produced it.
+
+        A run in flight is never discarded.
+        """
+        if self.is_busy:
+            return False
+        flow = self.flow
+        if flow is None:
+            return False
+
+        archive = getattr(flow.state, "archive_path", "")
+        if archive:
+            Path(archive).unlink(missing_ok=True)
+        run_id = getattr(flow.state, "run_id", "")
+        if run_id:
+            shutil.rmtree(SANDBOX_ROOT / run_id, ignore_errors=True)
+
+        self.log.reset()
+        self.recorder.reset()
+        self._set(flow=None, status="idle", error="", question="", flow_id="")
+        return True
+
     def start(self, requirements: str, process: str = "") -> None:
         """Kick off a build. Does nothing if one is already in flight."""
         if self.is_busy:
             return
+
+        # A new task replaces the old one entirely, including its files.
+        self.discard()
 
         allowed, reason = budget.check_can_start()
         if not allowed:
