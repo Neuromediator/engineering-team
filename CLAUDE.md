@@ -25,9 +25,10 @@ autonomy that can loop.
   (imports, crew construction, unit tests) are free; use them by default.
 - **Each run gets `sandbox/<run_id>/`**, reset only at the start of *its own* run. Old run
   directories are never cleaned up, so they accumulate — delete them when disk matters.
-  Finished source is archived to `exports/<run_id>.zip` before the sandbox is released,
-  which is the only copy that survives a remote (E2B) backend. Curated output belongs in
-  `examples/`.
+  Finished source is archived to `exports/<run_id>.zip`, and the activity log to
+  `exports/<run_id>.log`, before the sandbox is released — the only copies that survive a
+  remote (E2B) backend. Both are written at the human gate as well as on delivery, so a
+  reviewer can read what they are judging. Curated output belongs in `examples/`.
 
 ## Commands
 

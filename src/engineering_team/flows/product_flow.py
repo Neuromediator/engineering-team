@@ -90,6 +90,11 @@ class ProductState(BaseModel):
     # because with a remote backend the files die with the VM.
     archive_path: str = ""
 
+    # Where this run's activity log was written. The log lives in memory on the event
+    # bus and dies with the process, so a finished run used to lose its own trace: the
+    # packaged example had to be recovered from screenshots after the fact.
+    log_path: str = ""
+
     qa_report: QAReport | None = None
 
     # Which iteration produced `qa_report`, and whether the newest attempt crashed before
@@ -340,6 +345,35 @@ class ProductFlow(Flow[ProductState]):
                 print(f"Source archived to {archive}")
         except Exception as exc:  # noqa: BLE001 - a failed export must not fail the run
             print(f"Could not archive the source: {exc}")
+
+        self._export_log()
+
+    def _export_log(self) -> None:
+        """Write this run's activity log next to its archive.
+
+        The log lives in memory on the event bus and dies with the process, so until now
+        a finished run lost its own trace the moment it ended — the packaged example had
+        to be reconstructed from screenshots taken while it was still on screen, and only
+        60 of its 134 lines came back.
+
+        Fed by an injected callable rather than by reaching for the UI's session, for the
+        same reason the cost probe is: the flow must not depend on the surface that
+        launched it, and a headless run simply has no log to write.
+        """
+        probe = getattr(self, "_log_probe", None)
+        if probe is None or not self.state.run_id:
+            return
+        try:
+            text = probe()
+            if not (text or "").strip():
+                return
+            EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            path = EXPORTS_DIR / f"{self.state.run_id}.log"
+            path.write_text(text, encoding="utf-8")
+            self.state.log_path = str(path)
+            print(f"Activity log written to {path}")
+        except Exception as exc:  # noqa: BLE001 - losing the log must not fail the run
+            print(f"Could not write the activity log: {exc}")
 
     @listen("approved")
     def finalize(self) -> str:

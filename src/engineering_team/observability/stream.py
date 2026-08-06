@@ -9,6 +9,7 @@ inside an unrelated agent step.
 from __future__ import annotations
 
 import json
+import textwrap
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -35,6 +36,14 @@ from crewai.events.types.tool_usage_events import (
 MAX_LINES = 500
 
 
+# How wide the message column may get before it wraps. The panel scrolls horizontally,
+# which was judged good enough until a real run put a 300-character task failure in it:
+# "FAILED: Task execution failed: Invalid response from LLM call - None or empt…" ran off
+# the right edge, so the single most important line in the log was the one line a reader
+# could not read without dragging a scrollbar.
+MESSAGE_WIDTH = 84
+
+
 @dataclass(frozen=True)
 class LogLine:
     at: datetime
@@ -43,7 +52,17 @@ class LogLine:
     message: str
 
     def render(self) -> str:
-        return f"{self.at:%H:%M:%S}  {self.kind:6} {self.actor:16.16} {self.message}"
+        prefix = f"{self.at:%H:%M:%S}  {self.kind:6} {self.actor:16.16} "
+        if len(self.message) <= MESSAGE_WIDTH:
+            return prefix + self.message
+
+        # Continuations are indented to the message column, so the timestamp/kind/actor
+        # grid still reads down the page. This is the opposite of the accidental wrapping
+        # that `add` guards against: there, embedded newlines produced rows with no
+        # timestamp at all; here the alignment is deliberate and preserved.
+        wrapped = textwrap.wrap(self.message, MESSAGE_WIDTH) or [self.message]
+        pad = " " * len(prefix)
+        return "\n".join([prefix + wrapped[0]] + [pad + part for part in wrapped[1:]])
 
 
 # Roles are full sentences in agents.yaml ("Quality Inspector who independently verifies
@@ -97,10 +116,11 @@ class RunLog:
         self._lock = threading.Lock()
 
     def add(self, kind: str, actor: object, message: str) -> None:
-        # One entry must render as exactly one line. A message containing newlines —
-        # a pasted multi-line request, a traceback — otherwise spills into rows with no
-        # timestamp or actor, breaking the column grid. The panel scrolls horizontally,
-        # so a long single line is fine; a wrapped one is not.
+        # Newlines are collapsed here so an entry cannot spill into rows with no
+        # timestamp or actor, which is what breaks the column grid — a pasted multi-line
+        # request or a traceback would otherwise do exactly that. Length is a separate
+        # matter, handled by LogLine.render, which wraps long messages onto continuation
+        # lines indented to the message column.
         line = LogLine(
             at=datetime.now(timezone.utc),
             kind=kind,

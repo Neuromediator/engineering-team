@@ -248,6 +248,21 @@ class RunSession:
         )
         return True
 
+    def _attach_probes(self, flow: ProductFlow) -> None:
+        """Give a flow the two hooks back into this session.
+
+        ``_cost_probe`` lets the router stop before paying for another iteration;
+        ``_log_probe`` lets it write this run's activity log out beside the archive.
+        Both are injected rather than imported, so the flow stays usable headlessly.
+
+        Applied on resume as well as on start. A resumed flow is a fresh object loaded
+        from the checkpoint, so the probes do not travel with it — and the cost ceiling
+        silently stopped being enforced for exactly the runs a human had extended, which
+        are the ones most likely to reach it.
+        """
+        flow._cost_probe = self.recorder.total_cost
+        flow._log_probe = self.log.render
+
     def start(self, requirements: str, process: str = "") -> None:
         """Kick off a build. Does nothing if this session already has one running."""
         if self.is_busy:
@@ -266,8 +281,7 @@ class RunSession:
         self.discard()
 
         flow = ProductFlow()
-        # Lets the flow's router stop before paying for another iteration.
-        flow._cost_probe = self.recorder.total_cost
+        self._attach_probes(flow)
         self._set(
             flow=flow,
             status="running",
@@ -315,6 +329,7 @@ class RunSession:
             # Reload rather than reusing the in-memory object: the same path works after
             # a process restart, which is the point of persisting the pause.
             flow = ProductFlow.from_pending(flow_id)
+            self._attach_probes(flow)
             self._set(flow=flow)
             flow.resume(f"{marker} {feedback}".strip())
 

@@ -306,10 +306,12 @@ are now visible doing the work they were billed for. The log lives in `demo.json
 rest of the packaged record, and the remaining gap is marked in place. Nothing is
 reconstructed to fill it.
 
-The lesson is upstream of the panel: **`RunLog` is never persisted**, so every finished run
-loses its trace the moment the process ends. Curating an example into `examples/` should
-write the log out with the source. Until it does, the next preserved run will need
-screenshots too.
+The lesson was upstream of the panel: `RunLog` lived only in memory, so every finished run
+lost its trace the moment the process ended. **Now fixed** — a run writes
+`exports/<run_id>.log` beside its archive, at the human gate and again on delivery, so the
+next example can be curated from a real file instead of a screenshot. The log reaches the
+flow through an injected callable, the same way the cost probe does, so a headless run
+that has no log simply writes nothing.
 
 | Setting | Deployed value | Why |
 |---|---|---|
