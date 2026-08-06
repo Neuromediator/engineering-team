@@ -40,6 +40,9 @@ from ..ui.feedback_provider import PendingUIFeedbackProvider
 # the difference between a bounded demo and an unbounded bill.
 MAX_AUTO_ITERATIONS = 3
 
+# Finished source is archived here so it outlives the sandbox.
+EXPORTS_DIR = SANDBOX_ROOT.parent / "exports"
+
 
 class IterationRecord(BaseModel):
     """One trip round the loop, kept so the UI can show what changed and why."""
@@ -65,6 +68,10 @@ class ProductState(BaseModel):
     # "sequential" or "hierarchical". Empty means take the CREW_PROCESS default. Kept in
     # state so a resumed run keeps the process it started with.
     process: str = ""
+
+    # Where the finished source was archived. Set before the sandbox is released,
+    # because with a remote backend the files die with the VM.
+    archive_path: str = ""
 
     qa_report: QAReport | None = None
     history: list[IterationRecord] = Field(default_factory=list)
@@ -314,6 +321,17 @@ class ProductFlow(Flow[ProductState]):
         verdict = "QA-approved" if self.state.approved else "shipped with findings outstanding"
         message = f"Delivered after {self.state.iteration} iteration(s) — {verdict}."
         print(f"\n{message}")
+
+        # Pull the source out BEFORE releasing. With the E2B backend the files live on a
+        # microVM that close() destroys, so exporting afterwards would archive nothing.
+        try:
+            archive = self.sandbox().export_archive(EXPORTS_DIR)
+            if archive is not None:
+                self.state.archive_path = str(archive)
+                print(f"Source archived to {archive}")
+        except Exception as exc:  # noqa: BLE001 - a failed export must not fail the run
+            print(f"Could not archive the source: {exc}")
+
         # Terminal step: nothing else will touch the workspace, so stop paying for it.
         # Deliberately not done in finalize/stop_at_cap — a human can still send those
         # back for another pass, and that pass needs the existing files.

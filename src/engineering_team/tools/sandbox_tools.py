@@ -16,6 +16,7 @@ Docker during development, a Firecracker microVM once deployed. See :mod:`.sandb
 from crewai.tools import tool
 from pathlib import Path
 import uuid
+import zipfile
 
 from .sandbox import SandboxBackend, backend_name, make_backend
 
@@ -63,6 +64,37 @@ class Sandbox:
     def close(self) -> None:
         """Release remote resources. A no-op for the local backend."""
         self.backend.close()
+
+    # Skipped when exporting: machinery, not the product.
+    EXPORT_SKIP = (".venv", "__pycache__", "uv.lock", ".python-version")
+
+    def export_archive(self, dest_dir: Path | str) -> Path | None:
+        """Zip this run's source files and return the archive path.
+
+        Reads through the backend rather than the filesystem, so it works identically
+        for a local directory and a remote microVM. That matters: with E2B the files
+        live on a VM that gets killed, so unless they are pulled out first, a deployed
+        run produces output nobody can obtain.
+        """
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        archive = dest_dir / f"{self.run_id}.zip"
+
+        written = 0
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+            for name in self.backend.list_files():
+                if name in self.EXPORT_SKIP or name.startswith("."):
+                    continue
+                content = self.backend.read_file(name)
+                if content is None:  # a directory, or unreadable
+                    continue
+                bundle.writestr(name, content)
+                written += 1
+
+        if not written:
+            archive.unlink(missing_ok=True)
+            return None
+        return archive
 
     # -- operations, wrapped as tools below ---------------------------------------
 

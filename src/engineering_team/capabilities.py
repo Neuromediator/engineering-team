@@ -53,6 +53,10 @@ Environment and constraints:
 File discipline — the deliverable is exactly these files, and no others:
 - one backend module, `app.py` for the Gradio UI, one test file, and `_validate.py`
   which imports app.py and checks the Blocks constructs.
+- `app.py` must expose the Blocks object as a module-level `demo`, and end with
+  `if __name__ == "__main__": demo.launch()`. The guard is what keeps it safe: importing
+  the module (as `_validate.py` does) never starts a server, while running the file
+  directly does. Never call `.launch()` at import time.
 - Do NOT create extra scratch or verification scripts. If you need to check something,
   put the check in the existing test file and run that, or overwrite `_validate.py`.
   Files named like `_check.py`, `_check2.py`, `_runner.py`, `manual_check.py` or

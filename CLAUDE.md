@@ -23,8 +23,11 @@ autonomy that can loop.
 - **Cost is a first-class constraint.** The original crew cost ~$4 per run on `gpt-5.5`. Never
   trigger a full crew run casually — check which models are configured first. Structural checks
   (imports, crew construction, unit tests) are free; use them by default.
-- **`sandbox/` is wiped on every run** by `reset_sandbox()`. Never leave anything valuable
-  there. Curated output belongs in `examples/`.
+- **Each run gets `sandbox/<run_id>/`**, reset only at the start of *its own* run. Old run
+  directories are never cleaned up, so they accumulate — delete them when disk matters.
+  Finished source is archived to `exports/<run_id>.zip` before the sandbox is released,
+  which is the only copy that survives a remote (E2B) backend. Curated output belongs in
+  `examples/`.
 
 ## Commands
 

@@ -295,6 +295,8 @@ def build_ui() -> gr.Blocks:
         snapshot = session.snapshot()
         status = snapshot["status"]
         awaiting = status == "awaiting_feedback"
+        state = snapshot["state"]
+        archive = getattr(state, "archive_path", "") or None
 
         return (
             _status_html(status, snapshot["error"]),
@@ -306,6 +308,7 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             f"_{budget.status_line()}_",
+            gr.update(value=archive, visible=bool(archive)),
         )
 
     def start(requirements: str, process: str):
@@ -391,6 +394,9 @@ def build_ui() -> gr.Blocks:
                 progress_box = gr.Markdown("_Not started._")
                 gr.Markdown("### QA report")
                 qa_box = gr.Markdown("_No QA report yet._", elem_id="qa_panel")
+                download_box = gr.File(
+                    label="Finished source", visible=False, interactive=False
+                )
 
         feedback_box = gr.Textbox(
             label="Your feedback", lines=3, visible=False,
@@ -400,7 +406,7 @@ def build_ui() -> gr.Blocks:
 
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
-            feedback_box, feedback_button, run_button, budget_box,
+            feedback_box, feedback_button, run_button, budget_box, download_box,
         ]
 
         run_button.click(
