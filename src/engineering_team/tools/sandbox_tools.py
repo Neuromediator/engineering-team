@@ -15,6 +15,7 @@ Docker during development, a Firecracker microVM once deployed. See :mod:`.sandb
 
 from crewai.tools import tool
 from pathlib import Path
+import re
 import uuid
 import zipfile
 
@@ -23,6 +24,23 @@ from .sandbox import SandboxBackend, backend_name, make_backend
 
 SANDBOX_ROOT = Path(__file__).parents[3] / "sandbox"
 SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+# A launch *statement* — `demo.launch()`, indented under a __main__ guard or not. Written
+# as a statement match rather than a substring search on purpose: a test file legitimately
+# mentions ".launch(" while asserting the entry point is guarded, and refusing to run the
+# test suite over that would be a worse bug than the one this prevents. `self.assertIn(
+# ".launch(", source)` does not match; `    demo.launch()` does.
+_LAUNCH_CALL = re.compile(r"^\s*[A-Za-z_][\w.]*\.launch\s*\(", re.MULTILINE)
+
+
+def _calls_launch(source: str) -> bool:
+    """Whether running this file would start a Gradio server and block."""
+    return any(
+        _LAUNCH_CALL.match(line)
+        for line in source.splitlines()
+        if not line.lstrip().startswith("#")
+    )
 
 
 def new_run_id() -> str:
@@ -113,7 +131,46 @@ class Sandbox:
         return f"Wrote {written} characters to {filename}."
 
     def run_python(self, filename: str) -> str:
+        refusal = self._refuse_to_launch_a_server(filename)
+        if refusal is not None:
+            return refusal
         return self.backend.run_python(filename).render()
+
+    def _refuse_to_launch_a_server(self, filename: str) -> str | None:
+        """Block executing the Gradio entry point, which would block until killed.
+
+        The prompt already forbids this. A prompt is advice, and on the run that forced
+        this guard the frontend engineer ran ``app.py`` twice anyway:
+
+            21:45:02  tool  Frontend  run_sandbox_python_file  app.py  → FAILED (exit code 124)
+            21:45:03  tool  Frontend  run_sandbox_python_file  app.py  → FAILED (exit code 124)
+
+        Exit 124 is the execution timeout: ``demo.launch()`` starts a real web server
+        that serves until something kills it. Two of those burned ten minutes of wall
+        clock and produced nothing, and the sandbox expired shortly after.
+
+        So the rule moves from the prompt into the tool, which is this project's general
+        preference: bounded behaviour that can be proved over instructions that can be
+        ignored. The refusal names the alternative, because a bare "no" just invites the
+        agent to try a variation of the same thing.
+        """
+        name = (filename or "").strip().rsplit("/", 1)[-1]
+        if not name:
+            return None
+        try:
+            source = self.backend.read_file(name)
+        except Exception:  # noqa: BLE001 - let the real run report a missing file
+            return None
+        if not isinstance(source, str) or not _calls_launch(source):
+            return None
+        return (
+            f"REFUSED: {name} calls .launch(), which starts a web server and blocks "
+            f"until it is killed — the run would burn the whole execution timeout and "
+            f"return nothing. This is not a failure of your code.\n\n"
+            f"To check the UI, run _validate.py, which imports {name} and inspects the "
+            f"`demo` Blocks object without starting a server. If _validate.py does not "
+            f"exist yet, write it first."
+        )
 
     def add_package(self, package: str) -> str:
         return self.backend.add_package(package).render()

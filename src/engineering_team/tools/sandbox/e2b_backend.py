@@ -25,8 +25,11 @@ from .base import (
 # Absolute, because commands run with an explicit cwd and agents refer to bare filenames.
 WORKDIR = "/home/user/workspace"
 
-# A sandbox is billed while alive, so it is created per run and killed on close. This
-# ceiling is the backstop for a run that dies without cleaning up.
+# A sandbox is billed while alive, so it is created per run and killed on close. This is
+# now an IDLE timeout, not a lifetime: `_require` renews it on every operation, so it
+# bounds how long an abandoned VM keeps billing rather than how long a build may take.
+# As a lifetime it was a bug — 900s against 20-50 minute builds meant the workspace
+# vanished mid-run, taking the deliverable with it.
 SANDBOX_TIMEOUT = 900
 EXEC_TIMEOUT = 300
 
@@ -58,9 +61,33 @@ class E2BBackend:
     # -- lifecycle ----------------------------------------------------------------
 
     def _require(self):
-        """Return the live sandbox, creating it if a tool is used before reset()."""
+        """Return the live sandbox, creating it if a tool is used before reset().
+
+        Every operation renews the lease. E2B kills a VM when its timeout expires
+        counting from *creation*, not from last use, so a fixed 900s ceiling meant the
+        workspace disappeared 15 minutes into every build — and this project's own
+        README says a build takes 20-50 minutes. A run measured at 21:30:01 lost its
+        sandbox at 21:45:06 and every tool call after that failed:
+
+            ✗ write_sandbox_file — The sandbox was not found: This error is likely due
+              to sandbox timeout.
+
+        QA then reported two blockers for a deliverable it could not read, which is the
+        correct behaviour reporting on an incorrect situation. Renewing here converts
+        the ceiling into an idle timeout: the VM outlives any build that is still
+        working, and still shuts down 15 minutes after one stops — which is what keeps
+        an abandoned run from billing indefinitely.
+        """
         if self._sandbox is None:
             self._start()
+        else:
+            try:
+                self._sandbox.set_timeout(self.timeout)
+            except Exception:  # noqa: BLE001 - renewal is best effort
+                # Losing a renewal is not fatal on its own; the operation about to run
+                # may still succeed, and if the VM is truly gone it will say so with a
+                # far better message than one raised from here.
+                pass
         return self._sandbox
 
     def _start(self) -> None:
