@@ -298,6 +298,24 @@ class RunSession:
 
         self._spawn(resume)
 
+    def _pending_request(self, result) -> object | None:
+        """Detect a paused flow however the framework chose to report it.
+
+        Three shapes, learned one at a time and all real:
+          * kickoff() RAISES HumanFeedbackPending;
+          * resume() RETURNS it when it reaches another feedback point;
+          * resume() can also return normally while the framework records the pause,
+            which stranded a run — the UI said "finished" in the same second a
+            pending_feedback row was written.
+
+        So the return value is checked, and then the flow itself is asked. Trusting any
+        single signal has now been wrong twice.
+        """
+        if isinstance(result, HumanFeedbackPending):
+            return result
+        flow = self.flow
+        return getattr(flow, "pending_feedback", None) if flow is not None else None
+
     def _spawn(self, work) -> None:
         def runner() -> None:
             try:
@@ -313,12 +331,9 @@ class RunSession:
                 self._release_run_lock()
                 return
 
-            # resume() does NOT raise on a second pause — it *returns* the pending
-            # object. Without this branch a multi-round conversation would report
-            # "finished" the moment the flow asked its second question, which is the
-            # whole point of the feature.
-            if isinstance(result, HumanFeedbackPending):
-                self._on_pending(result)
+            pending = self._pending_request(result)
+            if pending is not None:
+                self._on_pending(pending)
                 return
 
             self.recorder.settle()
@@ -336,8 +351,10 @@ class RunSession:
         self._thread = thread
         thread.start()
 
-    def _on_pending(self, pending: HumanFeedbackPending) -> None:
-        context = getattr(pending, "context", None)
+    def _on_pending(self, pending: object) -> None:
+        # `pending` is either a HumanFeedbackPending (which carries .context) or the
+        # context itself, depending on which of the three signals fired.
+        context = getattr(pending, "context", None) or pending
         flow_id = getattr(context, "flow_id", "") or getattr(
             getattr(self.flow, "state", None), "id", ""
         )
