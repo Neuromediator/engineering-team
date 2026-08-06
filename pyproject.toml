@@ -28,18 +28,10 @@ build-backend = "hatchling.build"
 [tool.crewai]
 type = "crew"
 
+# Agents run `uv` inside their sandbox, which leaves a pyproject.toml behind in
+# every `sandbox/<run_id>/`. uv adopted each one as a workspace member, so this list
+# grew by a line per run — and since `sandbox/` is gitignored, a fresh clone had a
+# lockfile pinned to directories that do not exist. Excluding the tree stops uv
+# adopting them at all, rather than deleting the entries again after every run.
 [tool.uv.workspace]
-members = [
-    "sandbox",
-    "sandbox/verify_docker",
-    "sandbox/verify_pkg",
-    "sandbox/709d1ef9a12d",
-    "sandbox/a5e6e01ff759",
-    "sandbox/4c625cade498",
-    "sandbox/ed33eb37f802",
-    "sandbox/6872feacf47e",
-    "sandbox/guard",
-    "sandbox/6394fc75ab90",
-    "sandbox/fdf511247c40",
-    "sandbox/e740f20bcd91",
-]
+exclude = ["sandbox/*"]

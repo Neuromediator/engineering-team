@@ -1,8 +1,28 @@
+---
+title: Engineering Team
+emoji: 🛠️
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: 6.22.0
+app_file: app.py
+python_version: "3.12"
+pinned: false
+license: mit
+short_description: Plain-English requirements to a tested Python product
+---
+
 # Engineering Team
 
 A CrewAI system that turns plain-English requirements into a working, tested Python
 product — designed, built, independently inspected, and revised until it passes or a human
 says stop.
+
+**On the [live Space](https://huggingface.co/spaces/Neuromediator/engineering-team), open
+with "Show a finished run"** to see a real completed build in two seconds: its actual cost
+table, its QA report, and the source to download. Nothing there is mocked, including the
+human feedback round that fixed a waitlist-promotion bug. A live build takes 20–50 minutes
+and spends real money, so it is passphrase-gated on that deployment.
 
 It began as a follow-along from Ed Donner's Udemy Agentic AI course: four agents in a fixed
 sequence, a hardcoded requirements string, no UI, no tests of its own. What follows is what

@@ -1,0 +1,15 @@
+# Hugging Face Spaces installs from this file.
+#
+# Not a duplicate of pyproject.toml by choice: the Gradio SDK runtime reads only
+# requirements.txt / pre-requirements.txt / packages.txt. pyproject.toml is honoured
+# on Spaces only when a Docker SDK image runs a build backend itself, which a Gradio
+# Space never does. Verify with `hf spaces logs <id> --build` after a push.
+#
+# gradio is deliberately absent — the runtime preinstalls the version named by
+# sdk_version in README.md, and listing it here would fight that pin.
+#
+# Deliberately not a full `uv export` of the transitive closure: pinning 600+
+# packages fights whatever the Space image already ships. uv.lock stays the
+# reproducible record for local development, where it is actually used.
+crewai[tools]==1.15.10
+e2b-code-interpreter>=2.9.0
