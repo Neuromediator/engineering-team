@@ -18,3 +18,4 @@ flow_state/
 !examples/**/*.html
 exports/
 examples/gym_class_booking/gym_class_booking.zip
+.space/
