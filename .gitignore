@@ -7,7 +7,11 @@ __pycache__/
 
 # Agent sandbox — wiped and regenerated on every run.
 # Curated sample output lives in examples/ instead.
-sandbox/
+#
+# Anchored with a leading slash. Unanchored, `sandbox/` matches a directory of that
+# name at ANY depth, which silently excluded src/engineering_team/tools/sandbox/ —
+# the whole SandboxBackend package — from every commit.
+/sandbox/
 
 # CrewAI runtime state
 db/
