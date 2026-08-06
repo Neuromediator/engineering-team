@@ -135,20 +135,22 @@ def qa_findings() -> str:
 
 
 def activity_log() -> str:
-    """The preserved excerpt of the run's activity log, labelled as an excerpt.
+    """The preserved portion of the run's activity log, labelled as partial.
 
-    The run is real and every line here was transcribed from it, but the log itself
-    was never written to disk — it lived in memory and stdout — so 11 of 134 lines are
-    all that survived. Rendered bare in the same widget a live run streams into, an
-    abridgement is indistinguishable from a complete log, and this one is unusually
-    misleading: it contains no line from the frontend engineer or the test engineer,
-    the two agents that between them made 37 of the run's 72 calls and, in the
-    frontend's case, the largest share of its cost. A reader comparing this panel to
-    the cost table beside it would conclude those agents never ran.
+    The log was never written to disk — it lived in memory and stdout — so what
+    survives was recovered from screenshots taken while the run was on screen: lines
+    1-5 and 84-134, plus four lines transcribed earlier from the stretch between.
+    60 of 134.
 
-    So the omission is stated rather than left to be inferred. The alternative — an
-    excerpt that reads as a full trace — is the kind of quiet overstatement this
-    project's whole premise is against.
+    That recovery matters for more than completeness. The earlier version of this
+    function held 11 hardcoded lines containing no entry from the frontend or test
+    engineers, so the panel implied two agents never ran while the cost table beside
+    it credited them with 37 of the run's 72 calls. Those agents are now visible doing
+    the work they were billed for.
+
+    The remaining gap is marked in place rather than closed. Nothing here is
+    reconstructed or inferred: a log that quietly filled its own holes would be worth
+    less than one that shows them.
     """
     data = load()
     if not data:
@@ -159,22 +161,10 @@ def activity_log() -> str:
         return "_No activity log was preserved for this run._"
 
     total = data.get("activity_total_lines", len(excerpt))
-    elision_after = data.get("activity_elision_after", "")
+    preserved = data.get("activity_preserved_lines", len(excerpt))
 
     header = [
-        f"# EXCERPT — {len(excerpt)} of {total} lines. The run is real; this record of",
-        "# it is abridged, because the full log was never written to disk.",
+        f"# {preserved} of {total} lines. The gap is marked where the rest was lost.",
         "",
     ]
-
-    lines: list[str] = []
-    for line in excerpt:
-        lines.append(line)
-        if elision_after and line.startswith(elision_after):
-            lines.append(
-                "     ⋮     37 minutes omitted: the frontend build, the test engineer,"
-            )
-            lines.append(
-                "     ⋮     and the second iteration that followed the human feedback."
-            )
-    return "\n".join(header + lines)
+    return "\n".join(header + list(excerpt))

@@ -21,10 +21,10 @@ says stop.
 **On the [live Space](https://huggingface.co/spaces/Neuromediator/engineering-team), open
 with "Show a finished run"** to see a real completed build in two seconds: its actual cost
 table, its QA report, and the source to download — including the human feedback round that
-fixed a waitlist-promotion bug. Nothing is invented, but one panel is abridged: the
-activity log was never written to disk, so 11 of its 134 lines survive and the panel says
-so rather than passing an excerpt off as the whole trace. A live build takes 20–50 minutes
-and spends real money, so it is passphrase-gated on that deployment.
+fixed a waitlist-promotion bug. Nothing is invented, but one panel is partial: the activity
+log was never written to disk, so 60 of its 134 lines were recovered from screenshots and
+the gap is marked in place rather than quietly closed. A live build takes 20–50 minutes and
+spends real money, so it is passphrase-gated on that deployment.
 
 It began as a follow-along from Ed Donner's Udemy Agentic AI course: four agents in a fixed
 sequence, a hardcoded requirements string, no UI, no tests of its own. What follows is what

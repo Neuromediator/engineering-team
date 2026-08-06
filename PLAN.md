@@ -294,9 +294,19 @@ This claimed "nothing is mocked", which was not true of the activity panel: that
 never persisted, and 11 transcribed lines of 134 were rendered in the same widget a live
 run streams into, with no sign they were an excerpt. The omission was not neutral — it
 dropped every line from the frontend and test engineers, the two agents responsible for
-37 of 72 calls, so the panel contradicted the cost table beside it. The excerpt now lives
-in `demo.json` with the rest of the packaged record, labelled, with the 37-minute gap
-marked and named. Recapturing a real log means paying for another run.
+37 of 72 calls, so the panel contradicted the cost table beside it.
+
+**Most of it was recoverable after all.** Screenshots taken while the run was on screen
+carried lines 1-5 and 84-134 verbatim, which is 60 of 134 once the four previously
+transcribed lines are counted — and, more to the point, the frontend and test engineers
+are now visible doing the work they were billed for. The log lives in `demo.json` with the
+rest of the packaged record, and the remaining gap is marked in place. Nothing is
+reconstructed to fill it.
+
+The lesson is upstream of the panel: **`RunLog` is never persisted**, so every finished run
+loses its trace the moment the process ends. Curating an example into `examples/` should
+write the log out with the source. Until it does, the next preserved run will need
+screenshots too.
 
 | Setting | Deployed value | Why |
 |---|---|---|
