@@ -325,6 +325,9 @@ def build_ui() -> gr.Blocks:
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             f"_{budget.status_line()}_",
             gr.update(value=archive, visible=bool(archive)),
+            # No `value`: sending one would overwrite whatever the visitor is typing on
+            # the next poll. Only the lock state changes.
+            gr.update(interactive=status not in {"running", "awaiting_feedback"}),
             session,
         )
 
@@ -381,6 +384,9 @@ def build_ui() -> gr.Blocks:
                     label="Requirements",
                     placeholder=PLACEHOLDER,
                     lines=12,
+                    # Plain Enter must stay a newline — requirements are multi-line by
+                    # nature — so Ctrl/Cmd+Enter submits, which is the usual convention.
+                    info="Ctrl+Enter to build. The box locks while a build is running.",
                 )
                 process_choice = gr.Radio(
                     choices=list(VALID_PROCESSES),
@@ -448,10 +454,13 @@ def build_ui() -> gr.Blocks:
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
             feedback_box, revise_button, ship_button, run_button, budget_box,
-            download_box, session_state,
+            download_box, requirements, session_state,
         ]
 
         run_button.click(
+            start, inputs=[requirements, process_choice, session_state], outputs=outputs
+        )
+        requirements.submit(
             start, inputs=[requirements, process_choice, session_state], outputs=outputs
         )
         revise_button.click(
