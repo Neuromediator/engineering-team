@@ -61,8 +61,21 @@ class RunSession:
             "log": self.log.render(),
             "cost": self.recorder.total_cost(),
             "by_agent": self.recorder.by_agent(),
+            "unattributed_models": self._unattributed_models(),
             "state": state,
         }
+
+    def _unattributed_models(self) -> list[str]:
+        """Models behind calls the bus could not attribute to an agent."""
+        from ..observability.recorder import UNKNOWN_AGENT
+
+        return sorted(
+            {
+                call.model
+                for call in self.recorder.calls
+                if call.agent_role == UNKNOWN_AGENT
+            }
+        )
 
     @property
     def is_busy(self) -> bool:

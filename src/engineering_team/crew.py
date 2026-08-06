@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from crewai import Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
@@ -175,8 +176,20 @@ class EngineeringTeam():
     # *this run's* sandbox. A static `output_file: sandbox/design.md` in the YAML
     # resolves against the working directory, so every concurrent run would write
     # over the same three files — which defeats per-run isolation.
-    def _artifact(self, name: str) -> str:
-        return str(self.sandbox.root / name)
+    #
+    # The path must be RELATIVE. Task.output_file_validation strips a leading "/" from
+    # absolute paths, so passing one silently turned
+    #   /home/me/project/sandbox/<run>/qa_report.json
+    # into a relative path and rebuilt that entire directory chain *inside* the project.
+    # It also rejects "..", so a sandbox outside the working directory cannot be
+    # expressed at all — in that case skip the artifact rather than write it somewhere
+    # surprising. The agents still have the content; only the convenience copy is lost.
+    def _artifact(self, name: str) -> str | None:
+        path = (self.sandbox.root / name).resolve()
+        try:
+            return str(path.relative_to(Path.cwd()))
+        except ValueError:
+            return None
 
     @task
     def design_task(self) -> Task:

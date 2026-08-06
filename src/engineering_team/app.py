@@ -219,6 +219,18 @@ def _cost_table(snapshot: dict) -> str:
             f"{totals.completion_tokens:,} | ${totals.cost:.4f} |"
         )
     rows.append(f"| **TOTAL** | | | | **${snapshot['cost']:.4f}** |")
+
+    # "(unattributed)" means the event bus reported an LLM call with no agent_role —
+    # a call CrewAI made outside an agent's execution. Naming the model makes it
+    # identifiable instead of mysterious.
+    unattributed = snapshot.get("unattributed_models") or []
+    if unattributed:
+        rows.append("")
+        rows.append(
+            "_(unattributed) = a call CrewAI made outside any agent: "
+            + ", ".join(f"`{_short(m)}`" for m in sorted(unattributed))
+            + "_"
+        )
     return "\n".join(rows)
 
 
@@ -351,6 +363,7 @@ def build_ui() -> gr.Blocks:
                 with gr.Row():
                     run_button = gr.Button("Build it", variant="primary", scale=2)
                     example_button = gr.Button("Load example", scale=1)
+                    clear_button = gr.Button("Clear", scale=1)
                 gr.Markdown(
                     "_Measured: **$0.22 / ~10 min** sequential, **$0.52 / ~30 min** hierarchical. "
                     "Asking for changes afterwards starts another build._"
@@ -395,6 +408,7 @@ def build_ui() -> gr.Blocks:
         )
         feedback_button.click(send_feedback, inputs=feedback_box, outputs=outputs)
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
+        clear_button.click(lambda: "", outputs=requirements)
 
         # The flow runs on a background thread; this is how its progress reaches the page.
         gr.Timer(POLL_SECONDS).tick(refresh, outputs=outputs)
