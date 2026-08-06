@@ -28,7 +28,7 @@ from crewai.flow.persistence import persist
 from pydantic import BaseModel, Field
 
 from ..budget import run_limit
-from ..capabilities import CONSTRAINTS_PROMPT
+from ..capabilities import CONSTRAINTS_PROMPT, REVISION_PROMPT
 from ..crew import EngineeringTeam
 from ..schemas import QAReport
 from ..tools.sandbox_tools import SANDBOX_ROOT, Sandbox, new_run_id
@@ -188,13 +188,17 @@ class ProductFlow(Flow[ProductState]):
 
     def _run_crew(self, sandbox):
         """One crew pass. Split out so :meth:`build` can guard it."""
+        revising = self.state.iteration > 1
+        constraints = CONSTRAINTS_PROMPT + (REVISION_PROMPT if revising else "")
         return EngineeringTeam(
-            sandbox=sandbox, process=self.state.process or None
+            sandbox=sandbox,
+            process=self.state.process or None,
+            revision=revising,
         ).crew().kickoff(
             inputs={
                 "requirements": self.state.requirements,
                 "revision_notes": self.state.notes_for_prompt(),
-                "constraints": CONSTRAINTS_PROMPT,
+                "constraints": constraints,
             }
         )
 

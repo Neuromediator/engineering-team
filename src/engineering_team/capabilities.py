@@ -67,3 +67,18 @@ File discipline — the deliverable is exactly these files, and no others:
 - When the tests pass and the UI validates, you are done. Stop and report; do not keep
   looking for more things to verify.
 """
+
+
+# Appended to the constraints on any iteration after the first. Without it, agents given
+# a revision note treat the task as "build the product" rather than "change this one
+# thing", and rewrite files that were already correct.
+REVISION_PROMPT = """
+THIS IS A REVISION, NOT A NEW BUILD.
+The sandbox already contains working code and an existing design. Your job is the
+smallest change that satisfies the feedback above — nothing else.
+- Read the existing files first. Keep their structure, names and style.
+- Change only what the feedback requires. Do not redesign, do not rename, and do not
+  rewrite a file that is already correct.
+- If the feedback asks you to delete files, delete them and change nothing else.
+- Re-run the tests to confirm you broke nothing, then stop.
+"""

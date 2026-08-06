@@ -80,7 +80,10 @@ class EngineeringTeam():
     tasks: list[Task]
 
     def __init__(
-        self, sandbox: Sandbox | None = None, process: str | None = None
+        self,
+        sandbox: Sandbox | None = None,
+        process: str | None = None,
+        revision: bool = False,
     ) -> None:
         # The sandbox is per-run, so it is injected rather than imported. Every agent in
         # this crew shares one instance, which is how they see each other's files.
@@ -92,6 +95,11 @@ class EngineeringTeam():
                 f"Unknown {PROCESS_ENV_VAR}={self.process!r}. "
                 f"Valid options are {' and '.join(VALID_PROCESSES)}."
             )
+        # A revision changes existing code; it does not re-derive the product. Running
+        # the full pipeline again meant a request to delete two files rebuilt the design,
+        # the backend, the UI and the tests — roughly half an hour for a two-line change.
+        self.revision = revision
+
         self._lead: Agent | None = None
 
     @property
@@ -249,8 +257,17 @@ class EngineeringTeam():
     @crew
     def crew(self) -> Crew:
         """Creates the EngineeringTeam crew in the configured process."""
+        tasks = list(self.tasks)
+        if self.revision:
+            # The design already exists in the sandbox and the agents can read it, so
+            # re-deriving it is pure cost. Context is dropped for the same reason: these
+            # agents hold tools and can read the files rather than be handed copies.
+            tasks = [t for t in tasks if t.name != "design_task"]
+            for task_ in tasks:
+                task_.context = []
+
         common = {
-            "tasks": self.tasks,
+            "tasks": tasks,
             "max_rpm": CREW_MAX_RPM,
             "verbose": True,
             "tracing": True,
