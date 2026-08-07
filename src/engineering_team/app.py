@@ -465,6 +465,13 @@ def build_ui() -> gr.Blocks:
             body = f"**{verdict.reason}**"
             if verdict.suggestion:
                 body += f"\n\n{verdict.suggestion}"
+            # Say what to do, not just what is wrong. Offering only "Build it anyway"
+            # reads as the single available move, when editing the brief and pressing
+            # Build it again is the one most people want — and is what clears this.
+            body += (
+                "\n\nEdit the brief above and press **Build it** again, or use "
+                "**Build it anyway** to run it as written."
+            )
             return (*_blocked(body, offer_override=True), *refresh(session))
 
         return _attempt(requirements, process, session)
@@ -502,7 +509,7 @@ def build_ui() -> gr.Blocks:
         whether somebody is still watching.
         """
         session = _ensure(session)
-        session.cancel()
+        session.cancel(reason="you pressed Stop")
         return refresh(session)
 
     def build_anyway(requirements: str, process: str, session: RunSession | None):
@@ -639,9 +646,12 @@ def build_ui() -> gr.Blocks:
                         variant="primary" if gated else "secondary",
                         scale=2,
                     )
-                stop_button = gr.Button(
-                    "Stop this build", variant="stop", visible=False
-                )
+                    # In this row rather than its own. A full-width row of its own added
+                    # 60px of chrome above the activity log and pushed the trace off the
+                    # first screen — the panel people actually watch during a build.
+                    stop_button = gr.Button(
+                        "Stop this build", variant="stop", visible=False, scale=1
+                    )
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)

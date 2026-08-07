@@ -265,7 +265,7 @@ class RunSession:
         )
         return True
 
-    def cancel(self) -> None:
+    def cancel(self, reason: str = "the page was closed or reloaded") -> None:
         """Stop a run because nobody is watching it any more.
 
         Called when the page unloads. What this can and cannot do is worth being precise
@@ -289,7 +289,7 @@ class RunSession:
             self.cancelled = True
             flow = self.flow
 
-        self.log.add("run", "flow", "cancelled — the page was closed or reloaded")
+        self.log.add("run", "flow", f"cancelled — {reason}")
         # Printed as well as logged. The RunLog it writes to lives in the session the
         # visitor has just abandoned, so a reloaded page never shows it and a closed one
         # has nobody to show. That left a successful cancellation with no trace anywhere
@@ -297,7 +297,7 @@ class RunSession:
         # nobody is watching. stdout reaches the Space log, which is where it can be
         # checked afterwards.
         run_id = getattr(getattr(flow, "state", None), "run_id", "") or "?"
-        print(f"\n[cancel] visitor left; stopping run {run_id}")
+        print(f"\n[cancel] {reason}; stopping run {run_id}")
 
         # First, because it is the one that keeps costing money while we tidy up.
         if flow is not None:
