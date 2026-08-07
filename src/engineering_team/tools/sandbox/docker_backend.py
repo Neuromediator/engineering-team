@@ -11,6 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ...capabilities import GRADIO_REQUIREMENT
 from .base import (
     EXIT_COULD_NOT_START,
     EXIT_TIMEOUT,
@@ -94,7 +95,12 @@ class DockerBackend:
         subprocess.run(
             ["uv", "init", "--bare", "--python", "3.13"], cwd=self.root, check=True
         )
-        subprocess.run(["uv", "add", "gradio"], cwd=self.root, check=True)
+        # Pinned, not latest: the agents are told this exact version in
+        # CONSTRAINTS_PROMPT, and a floating install would make that statement false the
+        # day a new release lands.
+        subprocess.run(
+            ["uv", "add", GRADIO_REQUIREMENT], cwd=self.root, check=True
+        )
 
     def close(self) -> None:
         """Nothing to release: containers are removed with --rm as they finish."""

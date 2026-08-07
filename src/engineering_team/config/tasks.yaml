@@ -15,6 +15,12 @@ design_task:
     functions. Do not actually write any code. Function or method signatures only.
     The design should make clear which parts belong to the backend python module, which to
     the gradio app, and what the unit tests must cover.
+    Describe the UI in terms of what it must let a person do and which backend calls it
+    makes — NOT in terms of specific Gradio parameters, component keyword arguments, or
+    what changed between Gradio versions. You have no way to check those, and the frontend
+    engineer does; a confident but stale API claim here is worse than no claim, because it
+    is read as part of the design. Name a component only where the choice is a genuine
+    design decision (a table rather than a text box), and leave its arguments alone.
     {constraints}
     Feedback to address from previous rounds of review (on the first attempt this says
     there is none — in that case just build it right the first time):
@@ -43,6 +49,10 @@ frontend_task:
   description: >
     Have the frontend_engineer write a gradio UI in a module app.py that demonstrates the
     backend code, as described in the design.
+    The design describes WHAT the UI must do. You decide HOW, because you are the only
+    agent here that can look up the Gradio API: if the design mentions a specific
+    parameter or component argument and your documentation lookup disagrees with it, the
+    documentation wins. Check rather than assume for anything version-sensitive.
     {constraints}
     Assume there is only 1 user, and have the UI be professional, polished, clean.
     Then have them write a separate validation script (e.g. _validate.py) that imports app.py

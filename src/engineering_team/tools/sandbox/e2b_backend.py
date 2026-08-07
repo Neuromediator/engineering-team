@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 
+from ...capabilities import GRADIO_REQUIREMENT
 from .base import (
     EXIT_COULD_NOT_START,
     EXIT_TIMEOUT,
@@ -141,7 +142,11 @@ class E2BBackend:
         from e2b.sandbox.commands.command_handle import CommandExitException
 
         try:
-            self._sandbox.commands.run("pip install --quiet gradio", timeout=600)
+            # Pinned for the same reason as the Docker backend: CONSTRAINTS_PROMPT
+            # states this version to the agents, so the install must not float.
+            self._sandbox.commands.run(
+                f"pip install --quiet {GRADIO_REQUIREMENT}", timeout=600
+            )
         except CommandExitException as exit_error:
             raise RuntimeError(
                 "Could not install gradio in the E2B sandbox: "

@@ -9,6 +9,21 @@ instead of an answer.
 from __future__ import annotations
 
 
+# The Gradio the sandbox installs, pinned and stated rather than left to be inferred.
+#
+# Both backends used to install a bare `gradio`, which follows latest — so the version
+# the agents built against could change under them without anything in the system
+# noticing, and would change the day Gradio 7 ships. Worse, nothing told them *which*
+# version they had, so the Engineering Lead inferred one from training data and then
+# wrote version-specific API guidance into design.md on the strength of that inference —
+# upstream of the frontend engineer, who is the one agent holding a docs lookup tool.
+#
+# Keep in step with the `gradio` pin in pyproject.toml: a sandbox on a different major
+# version from the app hosting it makes `_validate.py` prove the wrong thing.
+GRADIO_VERSION = "6.22.0"
+GRADIO_REQUIREMENT = f"gradio=={GRADIO_VERSION}"
+
+
 # Rendered into the UI so the person typing requirements knows the shape of the answer
 # before spending money on it.
 CAPABILITIES_MD = """\
@@ -37,13 +52,15 @@ of one.
 
 # The same constraints in the register the agents need, interpolated into task
 # descriptions so the prompts and the UI cannot drift apart.
-CONSTRAINTS_PROMPT = """\
+CONSTRAINTS_PROMPT = f"""\
 Environment and constraints:
 - Python only. The deliverable is a backend module, a Gradio UI in app.py, and a unit
   test file, all in ONE flat directory. No sub-directories or packages.
 - Third-party packages ARE available, but must be installed with the Add Sandbox Package
   tool BEFORE any code imports them, and the install result must be checked.
-- Gradio is already installed. Use it for the UI; do not build a UI in any other stack.
+- Gradio {GRADIO_VERSION} is already installed. Use it for the UI; do not build a UI in
+  any other stack. That version number is exact — do not assume an older or newer API,
+  and if you are unsure whether something changed, look it up rather than recalling it.
 - Tests use the standard library `unittest` module, not pytest.
 - Nothing persists beyond the run: no databases, no external services, no credentials.
   Where the requirements imply stored data, hold it in memory.
