@@ -345,6 +345,30 @@ The QA Inspector earned its seat again: 23/23 tests passing, and it still refuse
 build over a real defect — waitlisted members not tracked in the conflict-detection map,
 so someone could sit on a waitlist and book an overlapping class through the guard.
 
+#### What several deployed runs corrected about the headline numbers
+
+The UI advertised "**$0.22 / ~10 min** sequential, **$0.52 / ~30 min** hierarchical" from
+the first measured build. Cost held up; the timings did not, because they came from a
+single-iteration run on an easy brief and were quietly generalised.
+
+| Build | Iterations | Cost | Wall clock |
+|---|---|---|---|
+| Trading account manager (sequential, local) | 1 | $0.2210 | ~10 min |
+| Trading account manager (hierarchical, local) | 1 | $0.5193 | — |
+| Gym class booking (sequential, local) | 2 | $0.2388 | 48 min |
+| Cost splitter (E2B, QA passed first pass) | 1 | $0.1832 | 13 min |
+| Cost splitter (E2B, revised once) | 2 | ~$0.19 | ~25 min |
+
+**Cost is the stable number; time is not.** Six builds land between $0.18 and $0.24
+sequential regardless of iteration count, because a revision runs a reduced crew rather
+than rebuilding the product. Wall clock scales with iterations at roughly 10-25 minutes
+each, so a two-iteration build is 25-50 minutes and "~10 min" was never a typical figure.
+
+Hierarchical is worse on both axes than the cost table alone suggested: 30 minutes went
+on a brief sequential finishes quickly, so the 2.4× cost multiple understates it. That
+strengthens rather than changes the original finding — hierarchical is not an
+optimisation for a pipeline whose order is known in advance.
+
 **And it exposed a hole nothing synthetic would have.** The gate asked a human to review a
 build while offering no download and no way to read a file: the archive was written in
 `deliver()`, which runs *after* the decision, so the source reached only those who had

@@ -234,7 +234,8 @@ it locally until that ships.
 
 - **Python only**, one flat directory, Gradio for the UI. Ask for a React dashboard and you
   get a confusing failure — the UI states the constraints before you spend anything.
-- **Builds take 10–30 minutes** and cost $0.10–$0.50. Not a chat toy.
+- **Builds take 10–25 minutes per iteration**, and most take two, so 25–50 minutes is
+  the honest range. Cost is the steadier number: $0.18–0.24 sequential. Not a chat toy.
 - **Racing is verified against synthetic results**, not a live multi-variant run.
 - **One build at a time.** Sessions are per-visitor, but the event bus is global and the
   hardware is not big enough to make concurrency honest.

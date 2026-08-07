@@ -494,8 +494,9 @@ def build_ui() -> gr.Blocks:
                     info=(
                         "sequential: a fixed pipeline, 37 LLM calls, ~$0.22. "
                         "hierarchical: the Engineering Lead manages and delegates, "
-                        "102 calls, ~$0.52. Same product for a pipeline this "
-                        "predictable — which is the finding."
+                        "102 calls, ~$0.52, and noticeably more wall clock — 30 minutes "
+                        "went on a brief sequential finishes quickly. Same product for a "
+                        "pipeline this predictable, which is the finding."
                     ),
                 )
                 # Emphasis follows what the visitor can actually do. Gated, "Build it" is
@@ -517,9 +518,15 @@ def build_ui() -> gr.Blocks:
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
+                # Restated after more runs. "$0.22 / ~10 min" came from a single
+                # single-iteration build on an easy brief and quietly generalised it:
+                # wall clock scales with iterations, and most builds take two. Cost is
+                # the stable number, time is not, so the line now says which is which.
                 gr.Markdown(
-                    "_Measured: **$0.22 / ~10 min** sequential, **$0.52 / ~30 min** hierarchical. "
-                    "Asking for changes afterwards starts another build._"
+                    "_Measured, sequential: **$0.18–0.24** a build, **10–25 minutes per "
+                    "iteration**, and most take two. Hierarchical cost **2.4× more** for "
+                    "the same product and runs longer again. Asking for changes starts "
+                    "another iteration._"
                 )
 
             with gr.Column(scale=2):
