@@ -120,10 +120,22 @@ triage_task:
 
     Judge two separate things.
 
-    First, is this a request for software at all? Greetings, statements about the person,
-    questions about you, and unfinished thoughts are not. A brief that is short, blunt or
-    missing detail IS one — vagueness costs quality, not a refusal, and the person asking
-    is paying for the run. Only say no when there is no request there.
+    First, does this name something to build? The test is whether you could say what the
+    product IS in a few words after reading it.
+
+    These pass, and must keep passing — they are terse, but each names a thing, and being
+    vague about the details costs quality rather than a refusal:
+      "expense tracker" · "tool to split bills between flatmates" · "ballistics calculator"
+
+    These do not pass:
+      - greetings, questions about you, statements about the person
+      - a request for software that never says what the software does:
+        "build me an app" · "can you build me something" · "something cool please"
+
+    The second group is the one that gets waved through by mistake, because it really is
+    a request — it just has no product in it, and a build would invent one at the person's
+    expense. So apply this check: if the reason you are about to write says they did not
+    say what to build, then buildable is false. Do not write that sentence and return true.
 
     Second, would building it be reasonable? Refuse only where the evident purpose is
     harm: a weapon, malware, surveillance of a named person, fraud. Judge purpose and not
