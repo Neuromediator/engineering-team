@@ -16,15 +16,25 @@ observability, and a public deployment** — while cutting per-run cost from ~$4
 A CrewAI **Flow** owns the outer loop; a **hierarchical crew** does the building. Autonomy
 where it adds value, determinism where reliability and a cost ceiling matter.
 
+Intake triage sits outside the flow, before it: one call that decides whether a build is worth
+starting at all, so nothing is created for a brief that is not one.
+
 ```
-@start  analyze_requirements  → PO crew,    output_pydantic=ProductSpec
-@listen build                 → BuildCrew (hierarchical, lead delegates freely)
-@listen qa                    → QA crew,    output_pydantic=QAReport
-@router                       → report.passed and iteration < MAX ? "review" : "build"
-@human_feedback               → GradioFeedbackProvider, emit=["approved", "revise"]
-@listen "revise"              → back to build, feedback carried in state
-@listen "approved"            → finalize
+review_brief                  → BriefVerdict; refuse, ask, or continue   (before the flow)
+
+@start / @start("revise")  build       → the crew; QA emits output_pydantic=QAReport
+@router(build)             evaluate    → "approved" | "revise" | "exhausted"
+@listen("approved")        finalize    → archive the source for the reviewer
+@listen("exhausted")       stop_at_cap → archive it too; findings outstanding
+@listen(or_(...))          human_review→ @human_feedback, no emit — the UI sets a marker
+@router(human_review)      decide      → "ship" | "revise"
+@listen("ship")            deliver     → re-archive, release the workspace
 ```
+
+`human_review` carries **no `emit`**. CrewAI's version collapses free text into an outcome with
+a model, and it got it wrong — "Reject invalid input in the backend, not just the UI" was
+classified as *ship* and delivered unchanged. The interface already knows which button was
+pressed, so `decide` reads a marker rather than inferring one.
 
 Two things keep this from being a demo that loops forever: QA returns a **Pydantic** report so
 the router branches on a boolean rather than parsed prose, and `MAX_AUTO_ITERATIONS` bounds the
@@ -40,8 +50,9 @@ isolation (`sandbox/<run_id>/`).
 
 | Agent | Purpose |
 |---|---|
-| **Product Owner** | Raw UI text → structured spec with acceptance criteria. Stops garbage-in. |
 | **QA Inspector** | Reads the sandbox, runs tests, emits severity-ranked findings that drive the router. |
+| **Brief Reviewer** | Reads what was typed before a build starts and returns a `BriefVerdict`. |
+| ~~Product Owner~~ | Superseded by the Brief Reviewer — see below. |
 
 The Engineering Lead is now `manager_agent`; the four specialists get `allow_delegation=False`
 so the manager cannot delegate to an engineer that delegates back.
@@ -58,21 +69,51 @@ rather than the docs:
 Cost is bounded by construction: `max_iter` 30 on the manager, 20 on workers, `max_rpm` 30.
 An unbounded manager is an unbounded bill, so these caps are the feature, not a detail.
 
-The **Product Owner** role is deferred to Phase 5, where it has something to do — turning free
-text typed into the UI into a structured spec. Today's requirements are a fixed string, so a PO
-crew would add cost and demo nothing.
+**The Product Owner became the Brief Reviewer, and got smaller on the way.** It was deferred
+on the grounds that a fixed requirements string gave it nothing to do. The free-text box
+changed that, and the first live deployment showed what the job actually was: the only check
+on the box was that it was non-empty, so typing "how are you" bought a full build — 25
+minutes, ~$0.20, and an application nobody asked for.
+
+What it turned into is one call on the cheapest model before anything is created, returning
+two independent booleans:
+
+- **`buildable` is advisory.** A terse brief is still a brief and the person clicking is the
+  one paying, so a wrong "no" offers a *Build it anyway* button rather than a wall. This is
+  also the judgement a cheap model is most likely to get wrong.
+- **`permitted` is binding.** It refuses only where the evident purpose is harm, and judges
+  purpose rather than vocabulary.
+
+Checked against real briefs: a greeting is refused; `expense tracker` passes, which is the
+false rejection the split exists to avoid; a ballistics calculator passes; malware is refused.
+Briefs under 15 characters never reach a model at all, and the whole step **fails open** — a
+triage that blocks a build by breaking is worse than no triage.
+
+It does not turn text into a structured spec with acceptance criteria, which was the original
+ambition. That work would land in the design task, where it duplicates something the
+Engineering Lead already does; triage earns its keep by not spending money, which is a
+narrower and more defensible claim.
+
+**Why this is not a violation of "never parse prose for control flow."** That rule came from
+`emit=["ship","revise"]`, where a model was asked to infer something the interface already
+knew — the person had clicked a button. Here free text is the only signal there is, and a
+model is the only thing that can read it. The discipline is preserved by *what is branched
+on*: the model returns a `BriefVerdict` and the code reads two booleans, exactly as the router
+reads `QAReport.verdict()`. Nothing branches on the sentence.
 
 ### Models
 
 `config/models.yaml` holds role→model mapping *and* per-model pricing, so the cost panel and
-the LLM assignment cannot drift apart. **Three models, fixed** — no profile matrix, because
-comparing configurations is not what this project is demonstrating.
+the LLM assignment cannot drift apart. **Three models across six roles, fixed** — no profile
+matrix, because comparing configurations is not what this project is demonstrating.
 
 | Role | Model | $/M in | $/M out | ctx |
 |---|---|---|---|---|
 | Engineering Lead (manager) | `deepseek/deepseek-v4-pro` | 0.435 | 0.870 | 1M |
 | Backend / Test | `deepseek/deepseek-v4-flash-0731` | 0.09 | 0.18 | 1M |
 | Frontend | `minimax/minimax-m3` | 0.30 | 1.20 | 1M |
+| QA Inspector | `deepseek/deepseek-v4-pro` | 0.435 | 0.870 | 1M |
+| Brief Reviewer | `deepseek/deepseek-v4-flash-0731` | 0.09 | 0.18 | 1M |
 
 **Manager — V4 Pro.** Manager cost is dominated by *input* tokens: it re-sends accumulated
 context on every delegation, so context size and input price are the levers. 80.6% SWE-bench
@@ -176,6 +217,7 @@ The race supervisor is still synthetic-only.*
 | 8 | Sandbox backend abstraction — `SandboxBackend` protocol, Docker + E2B | **done** |
 | 9 | Deploy — HF Space, secrets, `SANDBOX_BACKEND=e2b` | **done** |
 | 10 | Portfolio surface — README, architecture diagram, screenshots, demo link | **done** (README) |
+| 11 | Hardening under real use — intake triage, cancellation, runnable downloads | **done** |
 
 Phases are numbered in the order they are actually built. The original Phase 2 bundled three
 things that turned out to belong at three different times — execution feedback was urgent
@@ -239,6 +281,105 @@ whole still comes from the recorder.
 
 A race multiplies spend, so `variants` is an explicit argument and the per-variant iteration
 cap is tightened to 2.
+
+### Phase 11 notes (complete) — what a week of real use broke
+
+Everything below was found by using the deployed Space rather than by reading the code.
+Grouped by what the failure had in common, because the pattern is more useful than the list.
+
+**Things that only a remote sandbox could expose.** The Docker backend hid all three, because
+its workspace is a directory that persists and costs nothing.
+
+- `SANDBOX_TIMEOUT` was a *lifetime*, not an idle timeout. E2B counts from creation, so the
+  workspace vanished 900s into every build — against builds this project's own README puts at
+  20–50 minutes. One run lost its sandbox at exactly 15 minutes and every later tool call
+  returned "The sandbox was not found". `_require` now renews on every operation, which turns
+  the ceiling into an idle timeout: a working build outlives it, an abandoned one still dies.
+- **Approving a build destroyed it.** `_sandbox` is an instance attribute and does not survive
+  `@persist`, so a flow rebuilt by `from_pending()` started a *new empty* VM — and because
+  `export_archive` deletes an archive it finds no files for, clicking *Approve & ship* unlinked
+  the zip written before the gate and orphaned the VM holding the code. `ProductState` now
+  carries `sandbox_id` and the backend reattaches with `Sandbox.connect`.
+- **The gate asked for a judgement with nothing to judge.** The archive was written in
+  `deliver()`, which runs *after* the decision, so the source reached only people who had
+  already approved it unseen. Worse remotely, where there is no directory to open instead. The
+  export now runs before the gate as well as on delivery.
+
+**Prompts that were doing a tool's job.** Both were instructions a model could simply ignore,
+and did.
+
+- The frontend engineer ran `app.py` twice, each ending in exit code 124 — `.launch()` serves
+  until killed, so both calls burned the full execution timeout and returned nothing. Ten of
+  the fifteen minutes that then expired the sandbox. `CONSTRAINTS_PROMPT` forbids this in
+  capitals; the rule now lives in the tool, which refuses and names `_validate.py` instead.
+  Matched as a launch *statement*, not the substring `.launch(`, so a test asserting the guard
+  still runs.
+- The Engineering Lead was writing sections titled "Gradio 6 API Guidance for the Frontend
+  Engineer" — with worked before/after examples — from training data, with no tools and no way
+  to check. Upstream of the one agent holding a docs lookup. Nothing pinned the version either,
+  so it was inferring that too. Gradio is now pinned in `capabilities.py` and installed by both
+  backends; the design task is told to describe behaviour rather than API, and the frontend
+  task is told that where the design and its lookup disagree, the lookup wins.
+
+**Deliberately not** giving the lead Context7. `Crew._create_manager_agent` raises on a manager
+with tools, so it would only be possible in sequential — and the sequential-vs-hierarchical
+comparison, the best result this project has, would quietly become a comparison of tool access.
+
+**Feedback that was invisible.** Every reason a build did not start reported through
+`gr.Warning`, a toast gone in three seconds. Wrong key, empty box, triage objection and
+preflight failure were therefore indistinguishable from *nothing happening*, which is how a
+working deployment gets reported as broken. They now write to a panel that stays until the next
+attempt and names the actual cause. The build key gained a *Show key* toggle, because a masked
+field nobody can check is a field they mistype.
+
+**Cancellation, and an honest account of its limits.** Closing or reloading the page now stops
+the run: it kills the workspace at once (ending E2B billing), stops the flow starting another
+iteration, and releases the run lock. It **cannot** interrupt an LLM call in flight or kill the
+crew mid-task — CrewAI exposes no cancellation hook and a thread cannot be killed from outside,
+so the agent step in progress finishes and is billed. Doing better means running the crew in a
+subprocess, which puts the event bus feeding the cost panel and activity log across a process
+boundary. That is a real option, not a fantasy, but it is a bigger change than the problem
+currently justifies.
+
+The first attempt at it did not work at all. `gr.Blocks.unload` registers with `inputs=None`
+and cannot be handed the `gr.State` every other handler receives, so the session arrived as
+`None` and `cancel()` never ran — announced only by "UserWarning: Unexpected argument. Filling
+with None." It now takes the `gr.Request`, whose session hash identifies the leaving visitor in
+a registry `on_page_load` populates. Falling back to "cancel whoever holds the run lock" would
+have let a browsing visitor close their tab and kill the owner's build.
+
+**Downloads that could not be run.** A finished build arrived with no `pyproject.toml`, so
+`uv sync` failed outright and `python app.py` failed on a missing gradio — the reviewer the
+human gate asks for a judgement had no way to form one. The archive now carries a generated
+`pyproject.toml` and `HOW_TO_RUN.md`, written at export rather than by the crew: the deliverable
+is unchanged, file discipline stays as strict (QA flags stray files, and did so on the run that
+surfaced this), and the dependency list is what `add_package` actually installed rather than a
+model restating a fact the system already holds. Verified by extracting an archive and running
+`uv lock` against it.
+
+**`RunLog` was never persisted**, so every finished run lost its trace when the process ended —
+which is why the packaged example had to be recovered from screenshots, and why only 60 of its
+134 lines came back. A run now writes `exports/<run_id>.log` beside its archive.
+
+**Two bugs found while fixing others**, both silent:
+
+- The cost and log probes were attached on `start` but not on resume. A resumed flow is a fresh
+  object from the checkpoint, so the per-run budget ceiling stopped being enforced for exactly
+  the runs a human had just granted a fresh iteration budget — the ones most likely to reach it.
+- `.gitignore` had `sandbox/` unanchored, which matches that directory name at *any* depth. The
+  entire `SandboxBackend` package had never been committed, so the first deployment died on
+  `ModuleNotFoundError` and every clone of the repo was equally broken. It stayed hidden because
+  `make_space.sh` staged with `cp -r`, which copies what git ignores: two publication paths
+  disagreed and only one was ever exercised.
+
+**The test suite went from red to 71 green.** Three tests had been failing since the features
+they described changed under them. Each was rewritten to assert what the code actually
+guarantees rather than patched to pass — the model-coverage test now derives its expectation
+from `agents.yaml` instead of naming four roles literally, and the recorder tests use the
+verbatim role sentences, which matters because the backend engineer's contains the words
+"engineering lead" and that ordering trap is exactly what they failed to catch before. Verified
+by mutation: reintroducing the bug fails two tests, adding an agent without a model fails a
+third.
 
 ### Phase 9 notes (live)
 
@@ -534,12 +675,48 @@ thing to run when the question is "does the crew still work" rather than "is the
   assert the revise branch runs with feedback in state.
 - **End-to-end:** budget profile, total cost < $0.50 from the observability panel, generated
   app's `_validate.py` passes.
+- **Triage:** short briefs short-circuit without reaching a model; an exception or a missing
+  structured answer allows the build; `permitted` defaults to allowing, never to refusing.
+- **Cancellation:** an idle session cancels to a no-op, a running one releases the workspace,
+  a failing release still marks the run stopped, and the flow neither counts an iteration nor
+  routes to a revision.
+
+**Where it stands: 71 tests, green, no network and no API keys.** Everything below was checked
+against the live service rather than a stub, because each is a claim a unit test cannot make:
+both backends produce identical output for success, failure and a missing file; the deployed
+Space boots clean and serves the demo path; a generated archive resolves with `uv lock`; and
+triage's verdicts were confirmed against real briefs including the two that matter — a terse
+valid one that must pass, and malware that must not.
+
+**Still verified only against synthetic results:** the race supervisor. It is the last claim in
+the project that has never run for real, and racing multiplies spend, so it stays that way
+deliberately rather than by neglect.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
 | Hierarchical manager loops / burns budget | Iteration cap, `max_rpm`, cheap models, `allow_delegation=False` on engineers |
-| Cheap model delegates poorly as manager | GLM-5 rather than V4 Flash for the lead; profile is configurable |
 | Long runs exceed Space request timeouts | Flow runs in a background thread; UI polls via `gr.Timer` |
-| E2B credit exhausted | Short-lived sandboxes, hard concurrency cap |
+| E2B credit exhausted | Idle-timeout sandboxes renewed per operation, released on delivery and on cancel |
+| A stranger spends the owner's money | `BUILD_PASSPHRASE`; intake triage refuses nonsense before anything is created |
+| Nonsense or harmful briefs | `BriefVerdict` — advisory on buildable, binding on permitted |
+| An abandoned run keeps billing | Page unload cancels: workspace killed, no further iteration, lock released |
+
+Two of these were rewritten because the original was wrong. "Cheap model delegates poorly as
+manager" assumed the manager needed defending; it turned out hierarchical costs 2.4× for the
+same product on this pipeline, so the mitigation is not a better model but not using it. And
+"short-lived sandboxes" was itself the E2B bug — short-lived meant *dying mid-build*, and the
+fix was to make the timeout idle-based rather than shorter.
+
+## What is not done
+
+- **The race supervisor has never run for real.** Everything else in this document has been
+  exercised on the deployed Space at least once.
+- **Cancellation cannot interrupt a call in flight.** Bounded, not instant; see the phase 11
+  notes for what fixing that properly would cost.
+- **`BUDGET_DAILY_USD` resets with the container** on Spaces, because SQLite sits on ephemeral
+  disk. `BUILD_PASSPHRASE` is the bound that actually holds there.
+- **The packaged example is 60 of 134 log lines**, recovered from screenshots. The next
+  curated run will have a real log, now that `RunLog` persists — which is the better reason to
+  do one than the demo being stale.
