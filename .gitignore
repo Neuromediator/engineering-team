@@ -23,3 +23,7 @@ flow_state/
 exports/
 examples/gym_class_booking/gym_class_booking.zip
 .space/
+
+# Local working files: kept on disk, not published.
+CLAUDE.md
+linkedin-post.md
