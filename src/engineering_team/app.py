@@ -350,6 +350,7 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(interactive=True),
+            gr.update(visible=False),
             f"_{budget.status_line()}_",
             gr.update(value=demo.archive(), visible=bool(demo.archive())),
             gr.update(value=data["requirements"], interactive=True)
@@ -385,6 +386,10 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting),
             gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
+            # Offered only while there is something to stop. A build that has paused
+            # at the gate counts: it holds a workspace and can still be sent round
+            # again, so walking away from it should be a decision, not a leak.
+            gr.update(visible=status in {"running", "awaiting_feedback"}),
             # In-flight spend included, so this line and the cost table above it cannot
             # disagree about the same money while a build is running.
             f"_{budget.status_line(snapshot['unbanked'])}_",
@@ -483,6 +488,23 @@ def build_ui() -> gr.Blocks:
             return (*_blocked(f"**{notice}**"), *refresh(session))
         return (*_GATE_CLEAR, *refresh(session))
 
+    def stop_build(session: RunSession | None):
+        """Stop the run on request.
+
+        The deliberate answer to unload detection not being dependable. Gradio fires
+        `unload` from the session heartbeat noticing a dropped connection, and on this
+        deployment Python never sees the drop — the browser talks to the SSR Node proxy,
+        which holds its own connection open. A reload therefore left a build running and
+        the run lock held.
+
+        A button does not depend on any of that. It is also the honest shape for
+        something that spends money: an explicit act rather than an inference about
+        whether somebody is still watching.
+        """
+        session = _ensure(session)
+        session.cancel()
+        return refresh(session)
+
     def build_anyway(requirements: str, process: str, session: RunSession | None):
         """The override. Triage said no, the person said yes, and they are paying."""
         return _attempt(requirements, process, _ensure(session))
@@ -547,8 +569,8 @@ def build_ui() -> gr.Blocks:
                     # Plain Enter must stay a newline — requirements are multi-line by
                     # nature — so Ctrl/Cmd+Enter submits, which is the usual convention.
                     info=(
-                        "Ctrl+Enter to build. The box locks while a build is running, "
-                        "and closing or reloading this page stops it."
+                        "Ctrl+Enter to build. The box locks while a build is running. "
+                        "Use Stop this build to end one — leaving the page is not reliable."
                     ),
                 )
                 # Gated deployments must say so before the click, not after it. The old
@@ -617,6 +639,9 @@ def build_ui() -> gr.Blocks:
                         variant="primary" if gated else "secondary",
                         scale=2,
                     )
+                stop_button = gr.Button(
+                    "Stop this build", variant="stop", visible=False
+                )
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
@@ -679,7 +704,8 @@ def build_ui() -> gr.Blocks:
 
         outputs = [
             status_box, log_box, cost_box, progress_box, qa_box,
-            feedback_box, revise_button, ship_button, run_button, budget_box,
+            feedback_box, revise_button, ship_button, run_button, stop_button,
+            budget_box,
             download_box, requirements, session_state,
         ]
 
@@ -702,6 +728,7 @@ def build_ui() -> gr.Blocks:
             inputs=[requirements, process_choice, session_state],
             outputs=gate_outputs,
         )
+        stop_button.click(stop_build, inputs=session_state, outputs=outputs)
         revise_button.click(
             request_changes, inputs=[feedback_box, session_state], outputs=outputs
         )
