@@ -332,6 +332,24 @@ working deployment gets reported as broken. They now write to a panel that stays
 attempt and names the actual cause. The build key gained a *Show key* toggle, because a masked
 field nobody can check is a field they mistype.
 
+**The QA task contained a second, unbounded loop.** `qa_task` had told the inspector to
+"delegate the fixes to the engineer who owns the affected file, then re-verify — repeat
+until no blocking findings remain" since phase 3. Written for hierarchical; sequential is
+now the default, has no manager, and gives the inspector `allow_delegation=False`. So it
+tried to fix the build itself and looped until `max_iter` and then the 900s wall clock.
+Both iterations of a stock-tracker build died that way, and the run reached the cap having
+verified nothing, at **$0.4322** — roughly double a normal build, because the money went on
+two full wall-clock timeouts.
+
+It also fought the architecture it sat inside: `evaluate()` exists to read
+`QAReport.verdict()` and decide whether to iterate, so a fix-and-repeat loop inside the
+task duplicated the outer loop, escaped `MAX_AUTO_ITERATIONS`, and hid the findings from
+the router meant to act on them. QA now inspects, runs the tests once, reports, stops.
+
+The reason it surfaced only after months: the loop exits immediately when nothing blocking
+is found, so every clean build hid it. It fires precisely when the inspector finds
+something — the case the role exists for.
+
 **Cancellation, and an honest account of its limits.** Closing or reloading the page now stops
 the run: it kills the workspace at once (ending E2B billing), stops the flow starting another
 iteration, and releases the run lock. It **cannot** interrupt an LLM call in flight or kill the
@@ -340,6 +358,17 @@ so the agent step in progress finishes and is billed. Doing better means running
 subprocess, which puts the event bus feeding the cost panel and activity log across a process
 boundary. That is a real option, not a fantasy, but it is a bigger change than the problem
 currently justifies.
+
+It also did not work on the deployed Space for a second reason, found only by testing it
+there. Gradio fires `unload` when the session heartbeat sees a dropped connection, and
+under SSR the browser talks to a Node proxy which keeps its own connection to Python open
+— so Python never saw the disconnect and no `[cancel]` line appeared minutes after a
+reload. `GRADIO_SSR_MODE=false` fixed it, confirmed live. `GRADIO_HEARTBEAT_INTERVAL=3`
+cuts the remaining 15s detection delay.
+
+That is also why there is a **Stop button**. A build that spends money should not depend on
+an inference about whether somebody is still watching, and this failure was invisible: the
+UI promised that leaving the page stopped a build while it quietly did nothing.
 
 The first attempt at it did not work at all. `gr.Blocks.unload` registers with `inputs=None`
 and cannot be handed the `gr.State` every other handler receives, so the session arrived as
@@ -687,6 +716,11 @@ both backends produce identical output for success, failure and a missing file; 
 Space boots clean and serves the demo path; a generated archive resolves with `uv lock`; and
 triage's verdicts were confirmed against real briefs including the two that matter — a terse
 valid one that must pass, and malware that must not.
+
+**Settled by testing on the deployed Space, 2026-08-07/08:** the Stop button stops a run
+($0.0096, workspace released); page-close and reload now cancel too, once `GRADIO_SSR_MODE`
+was turned off; the `.launch()` refusal fires and the agent falls back to `_validate.py`;
+and intake triage refuses a contentless brief while still accepting a terse real one.
 
 **Still verified only against synthetic results:** the race supervisor. It is the last claim in
 the project that has never run for real, and racing multiplies spend, so it stays that way
