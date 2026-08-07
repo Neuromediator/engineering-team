@@ -72,3 +72,46 @@ class QAReport(BaseModel):
             and self.tests_run
             and self.tests_passed
         )
+
+
+class BriefVerdict(BaseModel):
+    """Whether a typed brief is worth spending a build on, and whether it is allowed.
+
+    Two independent booleans rather than one, because the two mistakes are not
+    symmetrical. Wrongly calling a terse brief unbuildable is common and cheap to undo,
+    so ``buildable`` is advisory and the person can build anyway. Wrongly building
+    something out of scope is rarer and lands on the owner's account and credit, so
+    ``permitted`` refuses outright.
+
+    Structured for the same reason :class:`QAReport` is: a model is the only thing that
+    can read free text, but nothing branches on the text it produces — only on these
+    flags. Reading prose to decide is what shipped a build that had asked for changes.
+    """
+
+    buildable: bool = Field(
+        description=(
+            "True if this describes software to build. False for greetings, statements "
+            "about the person, questions, or anything that is not a request."
+        )
+    )
+    permitted: bool = Field(
+        default=True,
+        description=(
+            "False ONLY for a request whose evident purpose is to cause harm — a "
+            "weapon, malware, surveillance of a person, fraud. Judge the purpose, not "
+            "the vocabulary: a ballistics calculator, a security scanner or a budgeting "
+            "tool for a defence firm are ordinary software. When unsure, return True; "
+            "the buildable flag already catches nonsense."
+        )
+    )
+    reason: str = Field(
+        default="",
+        description="One plain sentence a person can act on. No preamble, no apology.",
+    )
+    suggestion: str = Field(
+        default="",
+        description=(
+            "If not buildable, one concrete example of what a usable brief for this "
+            "system would look like. Empty otherwise."
+        ),
+    )

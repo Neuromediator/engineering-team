@@ -42,6 +42,11 @@ models:
   # false pass ships a broken build, a false fail buys another round of rework. It shares
   # the manager's model rather than the workers' for that reason.
   qa_inspector: openrouter/deepseek/deepseek-v4-pro
+  # Intake triage: one short call before a build starts, on the cheapest model.
+  # It reads a couple of sentences and returns two booleans, which is not work that
+  # rewards a better model — and it runs on every attempt, including the ones that
+  # turn out to be someone typing "how are you".
+  brief_reviewer: openrouter/deepseek/deepseek-v4-flash-0731
 
 # USD per million tokens.
 pricing:

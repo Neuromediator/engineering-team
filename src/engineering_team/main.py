@@ -10,6 +10,7 @@ from engineering_team.flows import ProductFlow, race
 from engineering_team.model_config import models
 from engineering_team.observability.recorder import CostListener, RunRecorder
 from engineering_team.preflight import assert_ready
+from engineering_team.triage import review_brief
 from .tools.sandbox_tools import SANDBOX_ROOT, Sandbox
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
@@ -57,6 +58,20 @@ def _report(recorder: RunRecorder) -> None:
 
 def run():
     """Run the full product flow: build, inspect, revise until QA passes or the cap hits."""
+    # Same intake check the UI applies. `permitted` refuses here too; `buildable` only
+    # warns, because on the command line the person has already committed to the run and
+    # there is no panel to answer — printing and continuing is the honest equivalent of
+    # the UI's "build it anyway".
+    verdict = review_brief(requirements)
+    if not verdict.permitted:
+        print(f"\nRefused: {verdict.reason}")
+        return
+    if not verdict.buildable:
+        print(f"\nIntake note: {verdict.reason}")
+        if verdict.suggestion:
+            print(f"  {verdict.suggestion}")
+        print("Continuing anyway — this is the command line, not the demo.\n")
+
     recorder = _announce()
     flow = ProductFlow()
 

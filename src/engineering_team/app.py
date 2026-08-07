@@ -20,6 +20,7 @@ from engineering_team.capabilities import CAPABILITIES_MD
 from engineering_team.crew import VALID_PROCESSES, process_name
 from engineering_team.model_config import models, price_for
 from engineering_team.preflight import run_all
+from engineering_team.triage import review_brief
 from engineering_team.ui.session import RunSession
 
 
@@ -55,6 +56,7 @@ STATUS_LABEL = {
     "awaiting_feedback": "Waiting for your feedback",
     "finished": "Finished",
     "failed": "Failed",
+    "cancelled": "Stopped — you left the page",
 }
 
 # Maps a status to the pill's CSS modifier.
@@ -64,6 +66,9 @@ STATUS_CLASS = {
     "awaiting_feedback": "awaiting",
     "finished": "finished",
     "failed": "failed",
+    # Reuses the idle colour on purpose: nothing went wrong, the run was
+    # abandoned, and a red pill would read as a defect in the system.
+    "cancelled": "idle",
 }
 
 
@@ -388,15 +393,47 @@ def build_ui() -> gr.Blocks:
             session,
         )
 
+    # The triage panel is not part of the shared outputs tuple. Only the two handlers
+    # that raise and clear it touch it, so the poll timer leaves an open question alone
+    # instead of wiping it two seconds after it appears.
+    _TRIAGE_HIDDEN = (gr.update(visible=False), gr.update(visible=False))
+
+    def _triage_panel(verdict) -> tuple:
+        body = f"**{verdict.reason}**"
+        if verdict.suggestion:
+            body += f"\n\n{verdict.suggestion}"
+        return (
+            gr.update(value=body, visible=True),
+            gr.update(visible=True),
+        )
+
     def start(requirements: str, process: str, key: str, session: RunSession | None):
+        """Checks that must pass before anything is created, cheapest first."""
         session = _ensure(session)
         allowed, why = budget.passphrase_ok(key)
         if not allowed:
             gr.Warning(why)
-            return refresh(session)
+            return (*_TRIAGE_HIDDEN, *refresh(session))
         if not requirements.strip():
             gr.Warning("Describe what you want built first.")
-            return refresh(session)
+            return (*_TRIAGE_HIDDEN, *refresh(session))
+
+        # Intake triage runs before preflight and before the sandbox: on E2B the sandbox
+        # means a microVM boot and a pip install, which is a lot to spend on "how are
+        # you". Two verdicts, treated differently — see triage.py for why.
+        verdict = review_brief(requirements)
+        if not verdict.permitted:
+            gr.Warning(verdict.reason or "That is not something this system will build.")
+            return (*_TRIAGE_HIDDEN, *refresh(session))
+        if not verdict.buildable:
+            # Advisory only. The person clicking is the one paying, and a wrong "no"
+            # here must not be a dead end, so the panel offers to build anyway.
+            return (*_triage_panel(verdict), *refresh(session))
+
+        return (*_TRIAGE_HIDDEN, *_begin(requirements, process, session))
+
+    def _begin(requirements: str, process: str, session: RunSession):
+        """Preflight, then hand off to the session. Shared by both entry paths."""
         failures = [check for check in run_all() if not check.ok]
         if failures:
             # Same reasoning as the CLI preflight: a run whose sandbox cannot execute
@@ -407,6 +444,11 @@ def build_ui() -> gr.Blocks:
         if session.snapshot()["notice"]:
             gr.Warning(session.snapshot()["notice"])
         return refresh(session)
+
+    def build_anyway(requirements: str, process: str, session: RunSession | None):
+        """The override. Triage said no, the person said yes, and they are paying."""
+        session = _ensure(session)
+        return (*_TRIAGE_HIDDEN, *_begin(requirements, process, session))
 
     def show_demo(session: RunSession | None):
         """Render a real completed run without spending anything."""
@@ -467,7 +509,10 @@ def build_ui() -> gr.Blocks:
                     lines=12,
                     # Plain Enter must stay a newline — requirements are multi-line by
                     # nature — so Ctrl/Cmd+Enter submits, which is the usual convention.
-                    info="Ctrl+Enter to build. The box locks while a build is running.",
+                    info=(
+                        "Ctrl+Enter to build. The box locks while a build is running, "
+                        "and closing or reloading this page stops it."
+                    ),
                 )
                 # Gated deployments must say so before the click, not after it. The old
                 # label read "Build key" over an empty box with "Live builds are limited
@@ -518,6 +563,13 @@ def build_ui() -> gr.Blocks:
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
+                # Raised when intake triage doubts the brief. Hidden until then, and it
+                # asks rather than blocks: the verdict is a cheap model's opinion, and
+                # the person clicking the button is the one paying for the run.
+                triage_notice = gr.Markdown(visible=False, elem_id="triage_notice")
+                triage_confirm = gr.Button(
+                    "Build it anyway", variant="stop", visible=False
+                )
                 # Restated after more runs. "$0.22 / ~10 min" came from a single
                 # single-iteration build on an easy brief and quietly generalised it:
                 # wall clock scales with iterations, and most builds take two. Cost is
@@ -581,15 +633,24 @@ def build_ui() -> gr.Blocks:
             download_box, requirements, session_state,
         ]
 
+        # Only the handlers that raise or clear the triage question write to these, so a
+        # poll tick cannot dismiss a question the person has not answered.
+        triage_outputs = [triage_notice, triage_confirm, *outputs]
+
         run_button.click(
             start,
             inputs=[requirements, process_choice, passphrase, session_state],
-            outputs=outputs,
+            outputs=triage_outputs,
         )
         requirements.submit(
             start,
             inputs=[requirements, process_choice, passphrase, session_state],
-            outputs=outputs,
+            outputs=triage_outputs,
+        )
+        triage_confirm.click(
+            build_anyway,
+            inputs=[requirements, process_choice, session_state],
+            outputs=triage_outputs,
         )
         revise_button.click(
             request_changes, inputs=[feedback_box, session_state], outputs=outputs
@@ -620,6 +681,19 @@ def build_ui() -> gr.Blocks:
             return refresh(session)
 
         page.load(on_page_load, inputs=session_state, outputs=outputs)
+
+        def on_unload(session: RunSession | None):
+            """Stop a build the visitor has walked away from.
+
+            Fires on a reload as well as a close, and the two are indistinguishable
+            from the server. A reload therefore ends the run — which is the intent,
+            since a reloaded page gets a fresh session and could not follow the old
+            build anyway. The requirements box says so above the button.
+            """
+            if session is not None:
+                session.cancel()
+
+        page.unload(on_unload)
 
     return page
 

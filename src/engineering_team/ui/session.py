@@ -38,7 +38,9 @@ from ..tools.sandbox_tools import SANDBOX_ROOT
 from .feedback_provider import clear_pending, enable_pausing
 
 
-Status = Literal["idle", "running", "awaiting_feedback", "finished", "failed"]
+Status = Literal[
+    "idle", "running", "awaiting_feedback", "finished", "failed", "cancelled"
+]
 
 BUSY_MESSAGE = (
     "Another build is running. Only one runs at a time on this hardware — "
@@ -125,6 +127,11 @@ class RunSession:
     # writes to the same components: without a flag the timer re-rendered this idle
     # session about a second after the click and blanked the example.
     showing_demo: bool = False
+
+    # Set when the visitor leaves the page. Checked by the flow between steps and by the
+    # completion handlers, so a run that has been abandoned neither starts another
+    # iteration nor overwrites its own cancelled status on the way out.
+    cancelled: bool = False
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _thread: threading.Thread | None = field(default=None, repr=False)
@@ -258,6 +265,47 @@ class RunSession:
         )
         return True
 
+    def cancel(self) -> None:
+        """Stop a run because nobody is watching it any more.
+
+        Called when the page unloads. What this can and cannot do is worth being precise
+        about, because "stop the build" sounds more absolute than it is:
+
+        * It kills the workspace immediately. On E2B that ends the microVM and its
+          billing there and then, which is the largest continuing cost.
+        * It stops the flow starting another iteration, so a run cancelled early in a
+          two-iteration build saves most of its remaining spend.
+        * It releases the run lock, so the next visitor is not locked out.
+
+        It cannot interrupt an LLM call already in flight, and it cannot kill the crew
+        mid-task: CrewAI exposes no cancellation hook and a Python thread cannot be
+        killed from outside. The agent step in progress finishes and is billed. Stopping
+        instantly would mean running the crew in a subprocess, which puts the event bus
+        that feeds the cost panel and activity log on the far side of a process boundary.
+        """
+        with self._lock:
+            if self.status not in {"running", "awaiting_feedback"} or self.cancelled:
+                return
+            self.cancelled = True
+            flow = self.flow
+
+        self.log.add("run", "flow", "cancelled — the page was closed or reloaded")
+
+        # First, because it is the one that keeps costing money while we tidy up.
+        if flow is not None:
+            try:
+                flow.release_sandbox()
+            except Exception as exc:  # noqa: BLE001 - teardown must not raise here
+                print(f"Could not release the sandbox on cancel: {exc}")
+
+        self.recorder.settle()
+        today = self._bank_spend()
+        self.log.add(
+            "run", "budget", f"spent ${self.recorder.total_cost():.4f}; today ${today:.2f}"
+        )
+        self._set(status="cancelled")
+        self._release_run_lock()
+
     def _attach_probes(self, flow: ProductFlow) -> None:
         """Give a flow the two hooks back into this session.
 
@@ -272,6 +320,7 @@ class RunSession:
         """
         flow._cost_probe = self.recorder.total_cost
         flow._log_probe = self.log.render
+        flow._cancel_probe = lambda: self.cancelled
 
     def start(self, requirements: str, process: str = "") -> None:
         """Kick off a build. Does nothing if this session already has one running."""
@@ -383,6 +432,10 @@ class RunSession:
                 self._on_pending(pending)
                 return
 
+            if self.cancelled:
+                # cancel() has already banked the spend, released the lock and set
+                # the status. The thread just unwinding is not a finished build.
+                return
             self.recorder.settle()
             today = self._bank_spend()
             self.log.add(
@@ -399,6 +452,11 @@ class RunSession:
         thread.start()
 
     def _on_pending(self, pending: object) -> None:
+        # A cancelled run may still reach the gate before the flow notices. Letting
+        # it post a question nobody will answer would re-take the lock and show a
+        # feedback box for a build the visitor has already walked away from.
+        if self.cancelled:
+            return
         # `pending` is either a HumanFeedbackPending (which carries .context) or the
         # context itself, depending on which of the three signals fired.
         context = getattr(pending, "context", None) or pending

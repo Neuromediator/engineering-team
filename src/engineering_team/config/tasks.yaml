@@ -109,3 +109,30 @@ qa_task:
     `tests_run` and `tests_passed` reflecting what was actually executed.
   context:
     - design_task
+
+triage_task:
+  description: >
+    Someone typed the following into the requirements box of a system that builds small
+    Python applications with a Gradio interface. Decide whether to spend a build on it.
+
+    What they typed:
+    {requirements}
+
+    Judge two separate things.
+
+    First, is this a request for software at all? Greetings, statements about the person,
+    questions about you, and unfinished thoughts are not. A brief that is short, blunt or
+    missing detail IS one — vagueness costs quality, not a refusal, and the person asking
+    is paying for the run. Only say no when there is no request there.
+
+    Second, would building it be reasonable? Refuse only where the evident purpose is
+    harm: a weapon, malware, surveillance of a named person, fraud. Judge purpose and not
+    vocabulary. A ballistics calculator, a security scanner, a firearms inventory for a
+    licensed dealer and a budgeting tool for a defence company are ordinary software and
+    are permitted. When you are unsure, permit it.
+
+    Do not evaluate whether the idea is good, whether it fits in one file, or whether the
+    requirements are complete. That is not your job and the rest of the team handles it.
+  expected_output: >
+    A BriefVerdict. Keep `reason` to one plain sentence addressed to the person who typed
+    it. Fill `suggestion` only when the brief is not buildable.

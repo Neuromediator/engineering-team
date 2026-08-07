@@ -221,6 +221,15 @@ class ProductFlow(Flow[ProductState]):
             sandbox.close()
             self._sandbox = None
 
+    def _cancelled(self) -> bool:
+        """Whether the visitor has walked away from this run.
+
+        Injected like the cost and log probes, so the flow keeps working headlessly
+        where there is no session and nothing to walk away from.
+        """
+        probe = getattr(self, "_cancel_probe", None)
+        return bool(probe and probe())
+
     def _run_crew(self, sandbox):
         """One crew pass. Split out so :meth:`build` can guard it."""
         revising = self.state.iteration > 1
@@ -240,6 +249,13 @@ class ProductFlow(Flow[ProductState]):
     @start("revise")
     def build(self) -> str:
         """Run the hierarchical crew. Re-entered on "revise" with feedback in state."""
+        if self._cancelled():
+            # Reached when a cancel lands between steps. Returning without running
+            # the crew is the whole saving: the next iteration is the expensive
+            # thing, and it never starts.
+            print("\nCancelled before iteration; not starting the crew.")
+            return "built"
+
         self._absorb_human_feedback()
         self.state.iteration += 1
 
@@ -309,6 +325,12 @@ class ProductFlow(Flow[ProductState]):
     @router(build)
     def evaluate(self) -> str:
         """Decide the next branch from structured findings, not from prose."""
+        if self._cancelled():
+            # Not "approved" and not another attempt. The session has already
+            # settled the cost and released the lock; this just stops the loop.
+            self.state.exhausted = True
+            return "exhausted"
+
         report = self.state.qa_report
 
         # A crashed attempt never earned a verdict, whatever the last good report said.
