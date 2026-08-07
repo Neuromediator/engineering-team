@@ -107,11 +107,20 @@ def check_can_start() -> tuple[bool, str]:
     return True, ""
 
 
-def status_line() -> str:
+def status_line(in_flight: float = 0.0) -> str:
+    """Today's spend against the ceiling, including a run still in progress.
+
+    ``in_flight`` exists because spend is only banked at a pause, a finish or a failure
+    — deliberately, so a run that dies mid-flight still gets charged for what it used.
+    The side effect was that during a build the cost table climbed while this line sat
+    at the last banked figure, and the two panels disagreed on screen about the same
+    money. Adding the un-banked total here reconciles them without banking early.
+    """
     limit = daily_limit()
+    spent = spent_today() + max(in_flight, 0.0)
     if limit <= 0:
         return "Budget: unlimited"
-    return f"Budget today: ${spent_today():.2f} of ${limit:.2f}"
+    return f"Budget today: ${spent:.2f} of ${limit:.2f}"
 
 
 # Deployment gate. When BUILD_PASSPHRASE is set, a live build requires it; visitors

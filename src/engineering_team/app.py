@@ -125,6 +125,11 @@ def _theme() -> gr.themes.Base:
 # Gradio 6 moved `css` off the Blocks constructor onto launch(), same as `theme`.
 # Everything here uses Gradio's own CSS variables so it follows light/dark automatically.
 CSS = f"""
+/* gr.Timer is a real component in Gradio 6 and renders as a number stepper. It is pure
+   plumbing — it polls the background run — so it has no business being on the page,
+   where it showed up as a pair of arrows flickering every couple of seconds. */
+#poll_timer {{ display: none !important; }}
+
 /* Long model slugs and role names were being broken mid-word in narrow columns
    ("backend_eng/ineer"), which is unreadable. Let wide content scroll instead. */
 .md table {{ table-layout: auto; border-collapse: collapse; width: 100%; }}
@@ -362,7 +367,9 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting),
             gr.update(visible=awaiting),
             gr.update(interactive=status not in {"running", "awaiting_feedback"}),
-            f"_{budget.status_line()}_",
+            # In-flight spend included, so this line and the cost table above it cannot
+            # disagree about the same money while a build is running.
+            f"_{budget.status_line(snapshot['unbanked'])}_",
             gr.update(
                 value=archive,
                 visible=bool(archive),
@@ -588,9 +595,15 @@ def build_ui() -> gr.Blocks:
         clear_button.click(lambda: "", outputs=requirements)
 
         # The flow runs on a background thread; this is how its progress reaches the page.
-        gr.Timer(POLL_SECONDS).tick(
-            refresh, inputs=session_state, outputs=outputs
-        )
+        #
+        # Wrapped and hidden by CSS: Gradio 6 renders gr.Timer as a visible number
+        # spinner, so the page carried a pair of stepper arrows that flickered on every
+        # tick. Timer takes neither `visible` nor `elem_id`, so the container is what
+        # gets the id.
+        with gr.Row(elem_id="poll_timer"):
+            gr.Timer(POLL_SECONDS).tick(
+                refresh, inputs=session_state, outputs=outputs
+            )
 
         def on_page_load(session: RunSession | None):
             # A reload ends this visitor's previous result; a run in flight is left

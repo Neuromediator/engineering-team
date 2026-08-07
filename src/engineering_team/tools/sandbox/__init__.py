@@ -18,13 +18,15 @@ def backend_name() -> str:
     return (os.environ.get(BACKEND_ENV_VAR) or DEFAULT_BACKEND).strip().lower()
 
 
-def make_backend(run_id: str, root: Path) -> SandboxBackend:
+def make_backend(run_id: str, root: Path, sandbox_id: str = "") -> SandboxBackend:
     """Build the configured backend for one run.
 
     Args:
         run_id: This run's identifier, used to label the remote sandbox.
         root: Local directory for the Docker backend. Ignored by E2B, whose files live
             on the VM.
+        sandbox_id: An existing remote sandbox to reattach to rather than create.
+            Ignored by Docker, whose workspace is a directory that simply still exists.
 
     Raises:
         ValueError: If ``SANDBOX_BACKEND`` names something that does not exist.
@@ -33,7 +35,7 @@ def make_backend(run_id: str, root: Path) -> SandboxBackend:
     if name == "docker":
         return DockerBackend(root)
     if name == "e2b":
-        return E2BBackend(run_id)
+        return E2BBackend(run_id, sandbox_id=sandbox_id)
     raise ValueError(
         f"Unknown {BACKEND_ENV_VAR}={name!r}. Valid options are 'docker' and 'e2b'."
     )

@@ -42,9 +42,18 @@ class E2BBackend:
     billing.
     """
 
-    def __init__(self, run_id: str, timeout: int = SANDBOX_TIMEOUT) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        timeout: int = SANDBOX_TIMEOUT,
+        sandbox_id: str = "",
+    ) -> None:
         self.run_id = run_id
         self.timeout = timeout
+        # An existing VM to reattach to instead of starting a fresh one. Set when a
+        # paused flow resumes: the flow object is rebuilt from the checkpoint and has no
+        # live handle, but the VM holding the run's files is still out there running.
+        self._resume_id = sandbox_id
         self._sandbox = None
 
     def __repr__(self) -> str:
@@ -97,6 +106,24 @@ class E2BBackend:
             )
         # Imported here so the package is only required when this backend is selected.
         from e2b_code_interpreter import Sandbox
+
+        # Reattach in preference to creating. Without this, resuming a paused flow built
+        # a *new empty* VM, and because export_archive deletes an archive it finds no
+        # files for, approving a build destroyed the very source that was approved —
+        # while the VM actually holding it was orphaned and billed until it timed out.
+        if self._resume_id:
+            try:
+                self._sandbox = Sandbox.connect(self._resume_id, timeout=self.timeout)
+                return
+            except Exception as exc:  # noqa: BLE001 - fall back to a fresh VM
+                # Reachable honestly: the VM may have hit its idle timeout while a human
+                # was deciding. Say so, because the alternative is a silently empty
+                # export that looks like the crew produced nothing.
+                print(
+                    f"Could not reattach to sandbox {self._resume_id} ({exc}); "
+                    "starting a new one. Files from the previous session are gone."
+                )
+                self._resume_id = ""
 
         self._sandbox = Sandbox.create(
             timeout=self.timeout,

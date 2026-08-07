@@ -82,6 +82,13 @@ class ProductState(BaseModel):
     # to the same directory instead of starting a fresh one and losing the build.
     run_id: str = ""
 
+    # The remote workspace's identity, for backends that have one. The run_id above is
+    # enough for Docker, whose directory is still on disk after a pause — but an E2B
+    # microVM is only reachable by its own id, and a resumed flow that did not have it
+    # started an empty VM, archived nothing, and deleted the archive of the build a
+    # human had just approved.
+    sandbox_id: str = ""
+
     # "sequential" or "hierarchical". Empty means take the CREW_PROCESS default. Kept in
     # state so a resumed run keeps the process it started with.
     process: str = ""
@@ -183,9 +190,29 @@ class ProductFlow(Flow[ProductState]):
         if existing is not None:
             return existing
 
-        sandbox = Sandbox(SANDBOX_ROOT / self.state.run_id, run_id=self.state.run_id)
+        # `_sandbox` is an instance attribute and does not survive @persist, so a flow
+        # rebuilt by from_pending() arrives here with nothing. state.sandbox_id is how
+        # it finds the workspace it already had.
+        sandbox = Sandbox(
+            SANDBOX_ROOT / self.state.run_id,
+            run_id=self.state.run_id,
+            sandbox_id=self.state.sandbox_id,
+        )
         self._sandbox = sandbox
         return sandbox
+
+    def _remember_sandbox(self) -> None:
+        """Record the remote workspace's id, once the backend has one to record.
+
+        Called after work rather than at construction: E2B starts its VM lazily on the
+        first operation, so asking before then returns an empty string.
+        """
+        sandbox = getattr(self, "_sandbox", None)
+        if sandbox is None:
+            return
+        current = sandbox.sandbox_id
+        if current and current != self.state.sandbox_id:
+            self.state.sandbox_id = current
 
     def release_sandbox(self) -> None:
         """Release the workspace. A no-op locally; ends billing on a remote backend."""
@@ -249,6 +276,7 @@ class ProductFlow(Flow[ProductState]):
                 f"[blocker] The previous attempt failed before finishing ({reason[:200]}). "
                 f"Work in smaller steps and re-run the tests as you go."
             )
+            self._remember_sandbox()
             return "built"
 
         usage = getattr(result, "token_usage", None)
@@ -275,6 +303,7 @@ class ProductFlow(Flow[ProductState]):
                 ),
             )
         )
+        self._remember_sandbox()
         return "built"
 
     @router(build)

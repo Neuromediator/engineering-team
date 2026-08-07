@@ -59,14 +59,31 @@ class Sandbox:
         root: Path | str | None = None,
         run_id: str | None = None,
         backend: SandboxBackend | None = None,
+        sandbox_id: str = "",
     ) -> None:
         self.run_id = run_id or (Path(root).name if root else new_run_id())
         self.root = Path(root) if root is not None else SANDBOX_ROOT / self.run_id
-        self.backend = backend if backend is not None else make_backend(self.run_id, self.root)
+        self.backend = (
+            backend
+            if backend is not None
+            else make_backend(self.run_id, self.root, sandbox_id)
+        )
+        # Packages the crew installed, in order. Recorded so the archive can declare the
+        # dependencies a downloaded build actually needs, rather than guessing at them.
+        self.installed: list[str] = []
         self._tools: list | None = None
 
     def __repr__(self) -> str:
         return f"Sandbox({self.backend.location})"
+
+    @property
+    def sandbox_id(self) -> str:
+        """The remote workspace's identity, if the backend has one.
+
+        Empty for Docker, whose workspace is a directory that outlives the process
+        anyway. Persisted by the flow so a resumed run reattaches to the same VM.
+        """
+        return getattr(self.backend, "sandbox_id", "") or ""
 
     @property
     def location(self) -> str:
@@ -99,6 +116,7 @@ class Sandbox:
         archive = dest_dir / f"{self.run_id}.zip"
 
         written = 0
+        names: list[str] = []
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
             for name in self.backend.list_files():
                 if name in self.EXPORT_SKIP or name.startswith("."):
@@ -107,12 +125,106 @@ class Sandbox:
                 if content is None:  # a directory, or unreadable
                     continue
                 bundle.writestr(name, content)
+                names.append(name)
                 written += 1
+
+            if written:
+                # Added here rather than asked of the crew. A downloaded build was not
+                # runnable: no pyproject.toml meant `uv sync` failed outright and
+                # `python app.py` failed on a missing gradio, so the reviewer the human
+                # gate asks for a judgement had no way to form one.
+                #
+                # Generating them at export keeps the deliverable itself untouched.
+                # File discipline is load-bearing prompt text — QA flags stray files as
+                # findings, and it flagged a scratch script on the very run that
+                # surfaced this — so adding files to what agents produce would mean
+                # loosening that rule and paying tokens to restate a dependency list the
+                # sandbox already knows exactly.
+                bundle.writestr("pyproject.toml", self._generated_pyproject())
+                bundle.writestr("HOW_TO_RUN.md", self._generated_readme(names))
 
         if not written:
             archive.unlink(missing_ok=True)
             return None
         return archive
+
+    def _dependencies(self) -> list[str]:
+        """What a downloaded build needs installed: gradio, plus whatever was added."""
+        deps = ["gradio>=6"]
+        deps.extend(p for p in self.installed if p.split("[")[0].strip() != "gradio")
+        return deps
+
+    def _generated_pyproject(self) -> str:
+        requires = "\n".join(f'    "{dep}",' for dep in self._dependencies())
+        return (
+            "# Generated when this build was archived — not written by the crew.\n"
+            "# The dependency list is what the sandbox actually installed.\n"
+            "[project]\n"
+            f'name = "generated-app"\n'
+            'version = "0.1.0"\n'
+            'requires-python = ">=3.10"\n'
+            "dependencies = [\n"
+            f"{requires}\n"
+            "]\n"
+        )
+
+    def _generated_readme(self, names: list[str]) -> str:
+        tests = [n for n in names if n.startswith("test_") and n.endswith(".py")]
+        test_cmd = (
+            f"uv run python -m unittest {tests[0][:-3]} -v"
+            if tests
+            else "uv run python -m unittest discover -v"
+        )
+        listing = "\n".join(f"- `{n}`" for n in sorted(names))
+        return f"""# How to run this build
+
+This directory was produced by an automated engineering crew and archived as-is. The
+`pyproject.toml` beside it was generated at download time, not by the crew, so that
+these commands work without you assembling an environment first.
+
+## Run the app
+
+```bash
+uv run app.py
+```
+
+`uv` reads `pyproject.toml`, creates the virtual environment and installs the
+dependencies on the first run. Gradio prints a local URL to open.
+
+Without `uv`:
+
+```bash
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\\Scripts\\activate
+pip install {" ".join(self._dependencies())}
+python app.py
+```
+
+## Run the tests
+
+```bash
+{test_cmd}
+```
+
+## Check the UI builds without starting a server
+
+```bash
+uv run _validate.py
+```
+
+This imports `app.py` and inspects the Gradio `Blocks` object. Useful because running
+`app.py` starts a real web server that serves until you stop it.
+
+## What is here
+
+{listing}
+
+`design.md`, `test_summary.md` and `qa_report.json` are written by the system, not by
+the crew — they are the design it worked from and the report it was judged against.
+
+If you downloaded this on Windows, files named `*:Zone.Identifier` may appear alongside
+the real ones. Those are the "mark of the web" your browser attaches, not part of the
+build; `find . -name '*:Zone.Identifier' -delete` removes them.
+"""
 
     # -- operations, wrapped as tools below ---------------------------------------
 
@@ -173,7 +285,15 @@ class Sandbox:
         )
 
     def add_package(self, package: str) -> str:
-        return self.backend.add_package(package).render()
+        result = self.backend.add_package(package).render()
+        # Remembered so the archive can declare what a downloaded build needs. The crew
+        # is never asked to write a dependency list: the sandbox already knows it
+        # exactly, and asking a model to restate a fact the system holds is how the two
+        # drift apart.
+        name = (package or "").strip()
+        if name and name not in self.installed and "[SUCCESS]" in result:
+            self.installed.append(name)
+        return result
 
     # -- tools --------------------------------------------------------------------
 

@@ -152,8 +152,18 @@ class RunSession:
             "cost": self.recorder.total_cost(),
             "by_agent": self.recorder.by_agent(),
             "unattributed_models": self._unattributed_models(),
+            "unbanked": self.unbanked_cost,
             "state": state,
         }
+
+    @property
+    def unbanked_cost(self) -> float:
+        """Spend this session has incurred but not yet charged to the daily total.
+
+        Non-zero only while a run is in flight, since banking happens at every pause and
+        ending. The budget line adds it so it agrees with the cost table beside it.
+        """
+        return max(self.recorder.total_cost() - self._recorded_usd, 0.0)
 
     def _unattributed_models(self) -> list[str]:
         """Models behind calls the bus could not attribute to an agent."""
