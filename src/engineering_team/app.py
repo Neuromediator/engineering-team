@@ -728,23 +728,40 @@ def build_ui() -> gr.Blocks:
                 refresh, inputs=session_state, outputs=outputs
             )
 
-        def on_page_load(session: RunSession | None):
+        # Which visitor owns which session. Needed because gr.Blocks.unload takes no
+        # inputs at all — it cannot be handed the gr.State the way every other handler
+        # is — so the leaving browser is identified by the session hash on its request
+        # and looked up here instead.
+        sessions_by_hash: dict[str, RunSession] = {}
+
+        def on_page_load(session: RunSession | None, request: gr.Request):
             # A reload ends this visitor's previous result; a run in flight is left
             # alone, and other visitors are untouched.
             session = _ensure(session)
+            token = getattr(request, "session_hash", "") or ""
+            if token:
+                sessions_by_hash[token] = session
             session.discard()
             return refresh(session)
 
         page.load(on_page_load, inputs=session_state, outputs=outputs)
 
-        def on_unload(session: RunSession | None):
+        def on_unload(request: gr.Request):
             """Stop a build the visitor has walked away from.
 
-            Fires on a reload as well as a close, and the two are indistinguishable
-            from the server. A reload therefore ends the run — which is the intent,
-            since a reloaded page gets a fresh session and could not follow the old
-            build anyway. The requirements box says so above the button.
+            Takes a gr.Request and nothing else. An earlier version declared the session
+            as a parameter, which Gradio cannot supply here — unload registers with
+            `inputs=None`, so the argument arrived as None on every close and the cancel
+            never ran. It announced itself as "UserWarning: Unexpected argument. Filling
+            with None." and was otherwise completely silent, which is the failure mode a
+            cleanup handler is worst placed to have.
+
+            Fires on a reload as well as a close, and the two are indistinguishable from
+            the server. A reload therefore ends the run — which is the intent, since a
+            reloaded page gets a fresh session and could not have followed the old build
+            anyway. The requirements box says so above the button.
             """
+            session = sessions_by_hash.pop(getattr(request, "session_hash", "") or "", None)
             if session is not None:
                 session.cancel()
 
