@@ -136,6 +136,33 @@ class ProductState(BaseModel):
         return "\n".join(f"- {note}" for note in self.revision_notes)
 
 
+def _failure_reason(exc: Exception) -> str:
+    """A short description of why an iteration died, fit to hand to the next one.
+
+    CrewAI puts the entire task description into a TimeoutError, so the raw string is
+    thousands of characters of prompt. Truncating that to 200 produced a revision note
+    reading "TimeoutError: Task \'Have the qa_inspector independently verify the
+    delivered system against the original requirements. Here are the requirements the
+    system must satisfy" — the next iteration was told nothing except that something it
+    already knew about had happened.
+    """
+    kind = type(exc).__name__
+    text = " ".join(str(exc).split())
+
+    if isinstance(exc, TimeoutError) or kind == "TimeoutError":
+        # The task name is the one useful fact in there, and it is quoted first.
+        task = ""
+        if "Task '" in text:
+            task = text.split("Task '", 1)[1][:60].strip()
+        where = f" while running: {task}…" if task else ""
+        return (
+            f"{kind}: an agent exceeded its wall-clock limit{where} "
+            f"It was most likely looping rather than stuck on one slow call."
+        )
+
+    return f"{kind}: {text[:200]}"
+
+
 def _extract_report(result) -> QAReport | None:
     """Pull the QAReport out of a crew result, tolerating a missing one.
 
@@ -274,7 +301,7 @@ class ProductFlow(Flow[ProductState]):
             # error — is a failed *iteration*, not a crashed run. Treating it as fatal
             # threw away a completed iteration's work and left the human nothing to act
             # on. Record it, let evaluate() decide whether another attempt is affordable.
-            reason = f"{type(exc).__name__}: {exc}"
+            reason = _failure_reason(exc)
             print(f"\nIteration {self.state.iteration} failed: {reason}")
             # Keep the previous report for display, but mark it stale so evaluate()
             # cannot approve on the strength of a verdict this attempt never earned.
@@ -439,13 +466,22 @@ class ProductFlow(Flow[ProductState]):
     @listen("exhausted")
     def stop_at_cap(self) -> str:
         """Stop honestly rather than looping. The cap is a feature, not a failure mode."""
-        blocking = (
-            len(self.state.qa_report.blocking_findings) if self.state.qa_report else 0
-        )
-        message = (
-            f"Stopped at the {self.state.max_iterations}-iteration cap with "
-            f"{blocking} blocking finding(s) outstanding. The build is NOT approved."
-        )
+        report = self.state.qa_report
+        if report is None:
+            # "0 blocking findings" was the old wording here, which reads as though the
+            # build was nearly fine. It means the opposite: no inspection ever completed,
+            # so nothing is known about the product at all.
+            message = (
+                f"Stopped at the {self.state.max_iterations}-iteration cap. No QA report "
+                f"was produced — every attempt failed before it could be inspected, so "
+                f"the build is unverified, not merely unapproved."
+            )
+        else:
+            message = (
+                f"Stopped at the {self.state.max_iterations}-iteration cap with "
+                f"{len(report.blocking_findings)} blocking finding(s) outstanding. "
+                f"The build is NOT approved."
+            )
         print(f"\n{message}")
         # Especially here. A build that stopped with findings outstanding is the one a
         # reviewer most needs to open before deciding whether it ships anyway.

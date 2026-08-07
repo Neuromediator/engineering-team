@@ -96,9 +96,13 @@ qa_task:
     The inspector must read the sandbox files and RUN the unit tests itself rather than
     trusting any earlier claim that they pass.
     {constraints}
-    If the inspector reports any blocker- or major-severity findings, delegate the fixes to
-    the engineer who owns the affected file, then have the qa_inspector re-verify. Repeat
-    until no blocking findings remain, then stop.
+    INSPECT AND REPORT. Do not fix anything, do not rewrite any file, and do not re-verify
+    in a loop. Read the files, run the tests once, write the report, stop.
+
+    Findings are not yours to resolve. If the report contains blocker- or major-severity
+    findings, the flow reads that verdict and sends the whole build back for another
+    iteration with your findings attached — that outer loop is what fixes things, and it
+    is bounded, which a loop inside this task is not.
     Feedback to address from previous rounds of review (on the first attempt this says
     there is none — in that case just build it right the first time):
     {revision_notes}
