@@ -135,6 +135,19 @@ CSS = f"""
    where it showed up as a pair of arrows flickering every couple of seconds. */
 #poll_timer {{ display: none !important; }}
 
+/* Why a build did not start. Amber rather than red: none of these is a fault, they are
+   all things the person can fix in a few seconds — and it must be impossible to miss,
+   which the gr.Warning toast it replaced very much was not. */
+#gate_notice {{
+  border-left: 3px solid {AMBER};
+  background: var(--background-fill-secondary);
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin-top: 4px;
+}}
+#gate_notice p {{ margin: 0 0 6px 0; }}
+#gate_notice p:last-child {{ margin-bottom: 0; }}
+
 /* Long model slugs and role names were being broken mid-word in narrow columns
    ("backend_eng/ineer"), which is unreadable. Let wide content scroll instead. */
 .md table {{ table-layout: auto; border-collapse: collapse; width: 100%; }}
@@ -393,62 +406,86 @@ def build_ui() -> gr.Blocks:
             session,
         )
 
-    # The triage panel is not part of the shared outputs tuple. Only the two handlers
-    # that raise and clear it touch it, so the poll timer leaves an open question alone
-    # instead of wiping it two seconds after it appears.
-    _TRIAGE_HIDDEN = (gr.update(visible=False), gr.update(visible=False))
+    # The gate panel is not part of the shared outputs tuple. Only the handlers that
+    # raise and clear it touch it, so the poll timer leaves a message alone instead of
+    # wiping it two seconds after it appears.
+    _GATE_CLEAR = (gr.update(value="", visible=False), gr.update(visible=False))
 
-    def _triage_panel(verdict) -> tuple:
-        body = f"**{verdict.reason}**"
-        if verdict.suggestion:
-            body += f"\n\n{verdict.suggestion}"
+    def _blocked(message: str, offer_override: bool = False) -> tuple:
+        """Say why the build did not start, and leave it said."""
         return (
-            gr.update(value=body, visible=True),
-            gr.update(visible=True),
+            gr.update(value=message, visible=True),
+            gr.update(visible=offer_override),
         )
 
     def start(requirements: str, process: str, key: str, session: RunSession | None):
         """Checks that must pass before anything is created, cheapest first."""
         session = _ensure(session)
+
         allowed, why = budget.passphrase_ok(key)
         if not allowed:
-            gr.Warning(why)
-            return (*_TRIAGE_HIDDEN, *refresh(session))
+            # Named explicitly. "Nothing happened" after pressing Build is the same
+            # experience whether the key is wrong, the box is empty or preflight failed,
+            # and leaving someone to guess between those is how a working deployment
+            # looks broken.
+            message = (
+                "**That build key is not right.** Check it and try again — tick "
+                '"Show key" if you want to see what you typed.'
+                if (key or "").strip()
+                else f"**A build key is needed to start a live build here.**\n\n{why}"
+            )
+            return (*_blocked(message), *refresh(session))
+
         if not requirements.strip():
-            gr.Warning("Describe what you want built first.")
-            return (*_TRIAGE_HIDDEN, *refresh(session))
+            return (
+                *_blocked("**Describe what you want built first.** The box above is empty."),
+                *refresh(session),
+            )
 
         # Intake triage runs before preflight and before the sandbox: on E2B the sandbox
         # means a microVM boot and a pip install, which is a lot to spend on "how are
         # you". Two verdicts, treated differently — see triage.py for why.
         verdict = review_brief(requirements)
         if not verdict.permitted:
-            gr.Warning(verdict.reason or "That is not something this system will build.")
-            return (*_TRIAGE_HIDDEN, *refresh(session))
+            return (
+                *_blocked(
+                    "**Not something this system will build.**\n\n"
+                    + (verdict.reason or "")
+                ),
+                *refresh(session),
+            )
         if not verdict.buildable:
             # Advisory only. The person clicking is the one paying, and a wrong "no"
             # here must not be a dead end, so the panel offers to build anyway.
-            return (*_triage_panel(verdict), *refresh(session))
+            body = f"**{verdict.reason}**"
+            if verdict.suggestion:
+                body += f"\n\n{verdict.suggestion}"
+            return (*_blocked(body, offer_override=True), *refresh(session))
 
-        return (*_TRIAGE_HIDDEN, *_begin(requirements, process, session))
+        return _attempt(requirements, process, session)
 
-    def _begin(requirements: str, process: str, session: RunSession):
-        """Preflight, then hand off to the session. Shared by both entry paths."""
+    def _attempt(requirements: str, process: str, session: RunSession) -> tuple:
+        """Preflight, then hand off. Reports a refusal in the panel, not a toast."""
         failures = [check for check in run_all() if not check.ok]
         if failures:
             # Same reasoning as the CLI preflight: a run whose sandbox cannot execute
-            # still costs full price while producing code nobody verified.
-            gr.Warning("Preflight failed: " + "; ".join(c.detail for c in failures))
-            return refresh(session)
+            # still costs full price while producing code nobody verified. The specific
+            # check is named, because "preflight failed" alone is unactionable.
+            detail = "\n".join(f"- `{c.name}`: {c.detail}" for c in failures)
+            return (
+                *_blocked(f"**The environment is not ready to build.**\n\n{detail}"),
+                *refresh(session),
+            )
+
         session.start(requirements, process)
-        if session.snapshot()["notice"]:
-            gr.Warning(session.snapshot()["notice"])
-        return refresh(session)
+        notice = session.snapshot()["notice"]
+        if notice:
+            return (*_blocked(f"**{notice}**"), *refresh(session))
+        return (*_GATE_CLEAR, *refresh(session))
 
     def build_anyway(requirements: str, process: str, session: RunSession | None):
         """The override. Triage said no, the person said yes, and they are paying."""
-        session = _ensure(session)
-        return (*_TRIAGE_HIDDEN, *_begin(requirements, process, session))
+        return _attempt(requirements, process, _ensure(session))
 
     def show_demo(session: RunSession | None):
         """Render a real completed run without spending anything."""
@@ -532,6 +569,16 @@ def build_ui() -> gr.Blocks:
                         "own cost table, QA report and downloadable source."
                     ),
                 )
+                # A masked field you cannot check is a field you mistype. There is no
+                # account to lock and no shoulder-surfing risk worth the trade here —
+                # the alternative is pressing Build repeatedly and guessing why nothing
+                # happens, which is exactly what it caused.
+                show_key = gr.Checkbox(
+                    label="Show key",
+                    value=False,
+                    visible=gated,
+                    container=False,
+                )
                 process_choice = gr.Radio(
                     choices=list(VALID_PROCESSES),
                     value=process_name(),
@@ -544,6 +591,16 @@ def build_ui() -> gr.Blocks:
                         "pipeline this predictable, which is the finding."
                     ),
                 )
+                # Every reason a build does not start lands here, and stays on screen.
+                # It used to be a gr.Warning toast — which is indistinguishable from
+                # nothing happening if you look away for three seconds, so pressing Build
+                # and seeing no response gave no clue whether the key was wrong, the
+                # requirements were empty, triage objected or preflight failed.
+                gate_notice = gr.Markdown(visible=False, elem_id="gate_notice")
+                triage_confirm = gr.Button(
+                    "Build it anyway", variant="stop", visible=False
+                )
+
                 # Emphasis follows what the visitor can actually do. Gated, "Build it" is
                 # a button almost nobody in the audience can use, so making it the primary
                 # call to action invites the one interaction guaranteed to fail. Ungated
@@ -563,13 +620,6 @@ def build_ui() -> gr.Blocks:
                 with gr.Row():
                     example_button = gr.Button("Load example requirements", scale=1)
                     clear_button = gr.Button("Clear", scale=1)
-                # Raised when intake triage doubts the brief. Hidden until then, and it
-                # asks rather than blocks: the verdict is a cheap model's opinion, and
-                # the person clicking the button is the one paying for the run.
-                triage_notice = gr.Markdown(visible=False, elem_id="triage_notice")
-                triage_confirm = gr.Button(
-                    "Build it anyway", variant="stop", visible=False
-                )
                 # Restated after more runs. "$0.22 / ~10 min" came from a single
                 # single-iteration build on an easy brief and quietly generalised it:
                 # wall clock scales with iterations, and most builds take two. Cost is
@@ -635,28 +685,33 @@ def build_ui() -> gr.Blocks:
 
         # Only the handlers that raise or clear the triage question write to these, so a
         # poll tick cannot dismiss a question the person has not answered.
-        triage_outputs = [triage_notice, triage_confirm, *outputs]
+        gate_outputs = [gate_notice, triage_confirm, *outputs]
 
         run_button.click(
             start,
             inputs=[requirements, process_choice, passphrase, session_state],
-            outputs=triage_outputs,
+            outputs=gate_outputs,
         )
         requirements.submit(
             start,
             inputs=[requirements, process_choice, passphrase, session_state],
-            outputs=triage_outputs,
+            outputs=gate_outputs,
         )
         triage_confirm.click(
             build_anyway,
             inputs=[requirements, process_choice, session_state],
-            outputs=triage_outputs,
+            outputs=gate_outputs,
         )
         revise_button.click(
             request_changes, inputs=[feedback_box, session_state], outputs=outputs
         )
         ship_button.click(
             approve_and_ship, inputs=[feedback_box, session_state], outputs=outputs
+        )
+        show_key.change(
+            lambda shown: gr.update(type="text" if shown else "password"),
+            inputs=show_key,
+            outputs=passphrase,
         )
         example_button.click(lambda: EXAMPLE_REQUIREMENTS, outputs=requirements)
         demo_button.click(show_demo, inputs=session_state, outputs=outputs)

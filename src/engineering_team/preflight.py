@@ -165,13 +165,19 @@ def run_all(*, require_docker: bool = True) -> list[CheckResult]:
     """
     from .tools.sandbox import backend_name
 
-    checks = [check_uv(), check_api_key()]
+    checks = [check_api_key()]
 
     backend = backend_name()
     if backend == "e2b":
         checks.append(check_api_key("E2B_API_KEY"))
-    elif require_docker:
-        checks.append(check_docker())
+    else:
+        # uv belongs with Docker, not with every run. Only the local backend shells out
+        # to it — `uv init`, `uv add`, and `uv run` inside the container. The E2B backend
+        # pip-installs on the VM and never touches host uv, so requiring it there makes
+        # every deployed build depend on a tool the Hugging Face image does not install.
+        checks.append(check_uv())
+        if require_docker:
+            checks.append(check_docker())
 
     return checks
 
