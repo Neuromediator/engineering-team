@@ -290,13 +290,22 @@ class RunSession:
             flow = self.flow
 
         self.log.add("run", "flow", "cancelled — the page was closed or reloaded")
+        # Printed as well as logged. The RunLog it writes to lives in the session the
+        # visitor has just abandoned, so a reloaded page never shows it and a closed one
+        # has nobody to show. That left a successful cancellation with no trace anywhere
+        # a person could reach — the one feature whose whole point is happening while
+        # nobody is watching. stdout reaches the Space log, which is where it can be
+        # checked afterwards.
+        run_id = getattr(getattr(flow, "state", None), "run_id", "") or "?"
+        print(f"\n[cancel] visitor left; stopping run {run_id}")
 
         # First, because it is the one that keeps costing money while we tidy up.
         if flow is not None:
             try:
                 flow.release_sandbox()
+                print("[cancel] workspace released")
             except Exception as exc:  # noqa: BLE001 - teardown must not raise here
-                print(f"Could not release the sandbox on cancel: {exc}")
+                print(f"[cancel] could not release the workspace: {exc}")
 
         self.recorder.settle()
         today = self._bank_spend()
@@ -305,6 +314,10 @@ class RunSession:
         )
         self._set(status="cancelled")
         self._release_run_lock()
+        print(
+            f"[cancel] done — spent ${self.recorder.total_cost():.4f}, "
+            f"run lock released, no further iteration will start"
+        )
 
     def _attach_probes(self, flow: ProductFlow) -> None:
         """Give a flow the two hooks back into this session.
