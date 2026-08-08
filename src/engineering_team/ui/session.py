@@ -362,6 +362,16 @@ class RunSession:
             flow_id="",
             notice="",
             showing_demo=False,
+            # Cleared here, and this line is load-bearing. `cancelled` was written as a
+            # one-way latch, which is right for one run and wrong for a session, because
+            # the session outlives the run: the gr.State holding it survives every build
+            # the visitor starts in that tab. A stopped build therefore poisoned every
+            # later one — the cancel probe fired at once so the flow stopped after a
+            # single iteration, `_on_pending` and the completion branch both returned
+            # early so the status never left "running", and cancel() short-circuited on
+            # its own latch, so Stop did nothing and printed nothing. The UI sat on
+            # "Building" forever with no way out.
+            cancelled=False,
         )
         self.log.add("run", "flow", f"starting ({process or 'default'} process)")
 
@@ -448,6 +458,9 @@ class RunSession:
             if self.cancelled:
                 # cancel() has already banked the spend, released the lock and set
                 # the status. The thread just unwinding is not a finished build.
+                # The release is a no-op in that case; it is here so that no path out
+                # of this thread can strand the lock, which is process-wide.
+                self._release_run_lock()
                 return
             self.recorder.settle()
             today = self._bank_spend()
@@ -469,6 +482,10 @@ class RunSession:
         # it post a question nobody will answer would re-take the lock and show a
         # feedback box for a build the visitor has already walked away from.
         if self.cancelled:
+            # Still release. This method owns the lock handed to it by the run thread,
+            # and returning without releasing locked every visitor out of the Space
+            # until it was restarted.
+            self._release_run_lock()
             return
         # `pending` is either a HumanFeedbackPending (which carries .context) or the
         # context itself, depending on which of the three signals fired.

@@ -114,6 +114,43 @@ class CancellationTest(unittest.TestCase):
         self.session.cancel()
         self.assertEqual(self.session.snapshot()["status"], "cancelled")
 
+    def test_a_stopped_session_can_build_again(self):
+        """The flag is per run, not per session, and the session outlives the run.
+
+        It was a one-way latch, and the gr.State holding a session survives every build
+        started in that tab. So one Stop poisoned the tab: the next build stopped after
+        an iteration, never left "running", and could not be stopped again — the UI sat
+        on "Building" with no way out.
+        """
+        self.session.status = "running"
+        self.session.cancel()
+        self.assertTrue(self.session.cancelled)
+
+        started = []
+        self.session._spawn = lambda work: started.append(work)
+        self.session.start("an expense tracker")
+
+        self.assertFalse(
+            self.session.cancelled, "a new build must not inherit the last one's stop"
+        )
+        self.assertEqual(self.session.snapshot()["status"], "running")
+        self.assertEqual(len(started), 1)
+        self.assertFalse(
+            self.session.flow._cancelled(),
+            "the cancel probe must not fire on the first step of a fresh build",
+        )
+        self.session.cancel()  # release the run lock this test just took
+
+    def test_reaching_the_gate_while_cancelled_releases_the_run_lock(self):
+        """The lock is process-wide: leaking it locks every visitor out of the Space."""
+        from engineering_team.ui.session import _run_lock
+
+        self.assertTrue(self.session._acquire_run_lock())
+        self.session.cancelled = True
+        self.session._on_pending(object())
+
+        self.assertFalse(_run_lock.locked(), "the next visitor must not be locked out")
+
 
 class FlowCancellationTest(unittest.TestCase):
     """The flow must stop looping, which is where the money actually is."""
