@@ -27,3 +27,6 @@ examples/gym_class_booking/gym_class_booking.zip
 # Local working files: kept on disk, not published.
 CLAUDE.md
 linkedin-post.md
+# The roadmap. Its job was getting the project here; ARCHITECTURE.md describes where it
+# landed, which is the only part a reader needs.
+PLAN.md

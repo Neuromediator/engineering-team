@@ -255,4 +255,4 @@ it locally until that ships.
 | `src/engineering_team/app.py` | the Gradio UI |
 | `src/engineering_team/config/models.yaml` | role → model, and pricing, in one file |
 | `examples/` | preserved output from real runs, with their cost tables |
-| `PLAN.md` | the roadmap, phase by phase, with what each one taught |
+| `ARCHITECTURE.md` | how it fits together, and the invariants it is built on |
