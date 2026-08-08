@@ -159,7 +159,11 @@ CSS = f"""
 .md table {{ table-layout: auto; border-collapse: collapse; width: 100%; }}
 .md td, .md th {{ word-break: normal; overflow-wrap: normal; hyphens: none; }}
 .md code {{ white-space: nowrap; font-size: 0.85em; }}
-#activity_log, #cost_panel, #models_panel, #qa_panel {{ overflow-x: auto; }}
+/* Markdown panels only. #activity_log used to be in this list and does not belong:
+   it is a CodeMirror editor, which brings its own scroller, and setting overflow-x on
+   the block around it makes overflow-y compute to auto as well — a second scroll
+   container wrapped around the first, clipping the editor instead of scrolling it. */
+#cost_panel, #models_panel, #qa_panel {{ overflow-x: auto; }}
 
 /* Tables read as data, not prose: quiet rules, right-aligned numbers, zebra rows. */
 .md th {{
@@ -731,8 +735,17 @@ def build_ui() -> gr.Blocks:
         with gr.Row():
             with gr.Column(scale=3):
                 gr.Markdown("### Activity")
+                # `max_lines` is not decoration. Gradio documents the default as
+                # "None ... will fill the height of the container", and this component's
+                # container is a column in a row whose height comes from the *other*
+                # column — Progress and the QA report. So the editor was sized by
+                # unrelated content and clipped whatever did not fit, with no scrollbar
+                # of its own: the packaged run's 134-line trace showed about seven lines
+                # and there was no way to reach the rest. Naming both bounds gives the
+                # editor a definite height and CodeMirror its own scroller.
                 log_box = gr.Code(
-                    label="", language=None, lines=20, elem_id="activity_log"
+                    label="", language=None, lines=20, max_lines=20,
+                    elem_id="activity_log",
                 )
             with gr.Column(scale=2):
                 gr.Markdown("### Progress")
