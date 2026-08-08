@@ -21,7 +21,7 @@ from engineering_team.crew import VALID_PROCESSES, process_name
 from engineering_team.model_config import models, price_for
 from engineering_team.preflight import run_all
 from engineering_team.triage import review_brief
-from engineering_team.ui.session import RunSession
+from engineering_team.ui.session import BUSY_STATUSES, RunSession
 
 
 PLACEHOLDER = (
@@ -52,6 +52,10 @@ POLL_SECONDS = 2.0
 
 STATUS_LABEL = {
     "idle": "Idle",
+    # Its own state, not a variant of Building: no run exists yet and nothing has been
+    # spent. Saying "Building" here would be a nicer lie and would make the Stop button
+    # appear with nothing behind it.
+    "starting": "Starting — checking your brief",
     "running": "Building",
     "awaiting_feedback": "Waiting for your feedback",
     "finished": "Finished",
@@ -62,6 +66,8 @@ STATUS_LABEL = {
 # Maps a status to the pill's CSS modifier.
 STATUS_CLASS = {
     "idle": "idle",
+    # Shares the live colour: the distinction matters in the label, not the dot.
+    "starting": "running",
     "running": "running",
     "awaiting_feedback": "awaiting",
     "finished": "finished",
@@ -356,6 +362,7 @@ def build_ui() -> gr.Blocks:
             gr.update(value=data["requirements"], interactive=True)
             if with_requirements
             else gr.update(interactive=True),
+            gr.update(interactive=True),
             session,
         )
 
@@ -385,7 +392,7 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=awaiting, label=snapshot["question"] or "Your feedback"),
             gr.update(visible=awaiting),
             gr.update(visible=awaiting),
-            gr.update(interactive=status not in {"running", "awaiting_feedback"}),
+            gr.update(interactive=status not in BUSY_STATUSES),
             # Offered only while there is something to stop. A build that has paused
             # at the gate counts: it holds a workspace and can still be sent round
             # again, so walking away from it should be a decision, not a leak.
@@ -407,7 +414,13 @@ def build_ui() -> gr.Blocks:
             ),
             # No `value`: sending one would overwrite whatever the visitor is typing on
             # the next poll. Only the lock state changes.
-            gr.update(interactive=status not in {"running", "awaiting_feedback"}),
+            gr.update(interactive=status not in BUSY_STATUSES),
+            # Locked with the brief. It was left live through a whole build, so the key
+            # that had already been accepted could be edited under a running run — and
+            # the box being editable is itself a claim that editing it does something.
+            # No `value` here either, and for a stronger reason: echoing a secret back
+            # to the browser every two seconds is not something to do by accident.
+            gr.update(interactive=status not in BUSY_STATUSES),
             session,
         )
 
@@ -423,8 +436,33 @@ def build_ui() -> gr.Blocks:
             gr.update(visible=offer_override),
         )
 
+    def _refuse(session: RunSession, message: str, offer_override: bool = False) -> tuple:
+        """A full frame for "this build is not starting".
+
+        Clears the starting status as well as showing why, so a refusal hands the page
+        back rather than leaving it locked on "Starting" with nothing on the way.
+        """
+        session.clear_starting()
+        return (*_blocked(message, offer_override), *refresh(session))
+
+    def _starting_frame(session: RunSession) -> tuple:
+        """The frame yielded the instant Build it is pressed.
+
+        The status set by mark_starting() is what keeps this on screen — this exists so
+        the change lands in the same moment as the click instead of on the next poll
+        tick, which is the difference between a button that responds and one that people
+        press twice.
+        """
+        return (*_GATE_CLEAR, *refresh(session))
+
     def start(requirements: str, process: str, key: str, session: RunSession | None):
-        """Checks that must pass before anything is created, cheapest first."""
+        """Checks that must pass before anything is created, cheapest first.
+
+        A generator, so the page changes on the click rather than when the checks are
+        done. The two checks above the yield are local string comparisons; everything
+        below it is a network call, and doing all of it before returning a single frame
+        is what made Build it look dead for twenty seconds.
+        """
         session = _ensure(session)
 
         allowed, why = budget.passphrase_ok(key)
@@ -439,26 +477,28 @@ def build_ui() -> gr.Blocks:
                 if (key or "").strip()
                 else f"**A build key is needed to start a live build here.**\n\n{why}"
             )
-            return (*_blocked(message), *refresh(session))
+            yield _refuse(session, message)
+            return
 
         if not requirements.strip():
-            return (
-                *_blocked("**Describe what you want built first.** The box above is empty."),
-                *refresh(session),
+            yield _refuse(
+                session, "**Describe what you want built first.** The box above is empty."
             )
+            return
+
+        session.mark_starting()
+        yield _starting_frame(session)
 
         # Intake triage runs before preflight and before the sandbox: on E2B the sandbox
         # means a microVM boot and a pip install, which is a lot to spend on "how are
         # you". Two verdicts, treated differently — see triage.py for why.
         verdict = review_brief(requirements)
         if not verdict.permitted:
-            return (
-                *_blocked(
-                    "**Not something this system will build.**\n\n"
-                    + (verdict.reason or "")
-                ),
-                *refresh(session),
+            yield _refuse(
+                session,
+                "**Not something this system will build.**\n\n" + (verdict.reason or ""),
             )
+            return
         if not verdict.buildable:
             # Advisory only. The person clicking is the one paying, and a wrong "no"
             # here must not be a dead end, so the panel offers to build anyway.
@@ -472,9 +512,10 @@ def build_ui() -> gr.Blocks:
                 "\n\nEdit the brief above and press **Build it** again, or use "
                 "**Build it anyway** to run it as written."
             )
-            return (*_blocked(body, offer_override=True), *refresh(session))
+            yield _refuse(session, body, offer_override=True)
+            return
 
-        return _attempt(requirements, process, session)
+        yield _attempt(requirements, process, session)
 
     def _attempt(requirements: str, process: str, session: RunSession) -> tuple:
         """Preflight, then hand off. Reports a refusal in the panel, not a toast."""
@@ -484,15 +525,18 @@ def build_ui() -> gr.Blocks:
             # still costs full price while producing code nobody verified. The specific
             # check is named, because "preflight failed" alone is unactionable.
             detail = "\n".join(f"- `{c.name}`: {c.detail}" for c in failures)
-            return (
-                *_blocked(f"**The environment is not ready to build.**\n\n{detail}"),
-                *refresh(session),
+            return _refuse(
+                session, f"**The environment is not ready to build.**\n\n{detail}"
             )
 
-        session.start(requirements, process)
+        session.start(requirements, process, expect="starting")
+        if session.snapshot()["status"] == "cancelled":
+            # The visitor left while triage and preflight were running. Nothing was
+            # started, and the panel would be shouting at an empty page anyway.
+            return (*_GATE_CLEAR, *refresh(session))
         notice = session.snapshot()["notice"]
         if notice:
-            return (*_blocked(f"**{notice}**"), *refresh(session))
+            return _refuse(session, f"**{notice}**")
         return (*_GATE_CLEAR, *refresh(session))
 
     def stop_build(session: RunSession | None):
@@ -513,8 +557,15 @@ def build_ui() -> gr.Blocks:
         return refresh(session)
 
     def build_anyway(requirements: str, process: str, session: RunSession | None):
-        """The override. Triage said no, the person said yes, and they are paying."""
-        return _attempt(requirements, process, _ensure(session))
+        """The override. Triage said no, the person said yes, and they are paying.
+
+        Skips triage but not preflight, so it has the same dead-click window as Build it
+        and is streamed the same way.
+        """
+        session = _ensure(session)
+        session.mark_starting()
+        yield _starting_frame(session)
+        yield _attempt(requirements, process, session)
 
     def show_demo(session: RunSession | None):
         """Render a real completed run without spending anything."""
@@ -716,7 +767,7 @@ def build_ui() -> gr.Blocks:
             status_box, log_box, cost_box, progress_box, qa_box,
             feedback_box, revise_button, ship_button, run_button, stop_button,
             budget_box,
-            download_box, requirements, session_state,
+            download_box, requirements, passphrase, session_state,
         ]
 
         # Only the handlers that raise or clear the triage question write to these, so a

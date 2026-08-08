@@ -141,6 +141,34 @@ class CancellationTest(unittest.TestCase):
         )
         self.session.cancel()  # release the run lock this test just took
 
+    def test_starting_is_busy_enough_to_lock_the_inputs(self):
+        """The pre-build checks take up to twenty seconds; the page must not look idle."""
+        from engineering_team.ui.session import BUSY_STATUSES
+
+        self.session.mark_starting()
+        self.assertEqual(self.session.snapshot()["status"], "starting")
+        self.assertIn("starting", BUSY_STATUSES)
+
+        self.session.clear_starting()
+        self.assertEqual(self.session.snapshot()["status"], "idle")
+
+    def test_mark_starting_leaves_a_live_run_alone(self):
+        self.session.status = "running"
+        self.session.mark_starting()
+        self.assertEqual(self.session.snapshot()["status"], "running")
+
+    def test_leaving_during_the_checks_stops_the_build_being_started(self):
+        """Otherwise a visitor who closes the page mid-triage still pays for a build."""
+        self.session.mark_starting()
+        self.session.cancel()  # what unload does
+        self.assertEqual(self.session.snapshot()["status"], "cancelled")
+
+        started = []
+        self.session._spawn = lambda work: started.append(work)
+        self.session.start("an expense tracker", expect="starting")
+
+        self.assertEqual(started, [], "no crew may be spawned for an abandoned page")
+
     def test_reaching_the_gate_while_cancelled_releases_the_run_lock(self):
         """The lock is process-wide: leaking it locks every visitor out of the Space."""
         from engineering_team.ui.session import _run_lock

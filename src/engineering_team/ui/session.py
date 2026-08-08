@@ -39,8 +39,13 @@ from .feedback_provider import clear_pending, enable_pausing
 
 
 Status = Literal[
-    "idle", "running", "awaiting_feedback", "finished", "failed", "cancelled"
+    "idle", "starting", "running", "awaiting_feedback", "finished", "failed", "cancelled"
 ]
+
+# States in which the visitor's inputs are locked and Build it is dead. "starting" is in
+# here for the same reason it exists at all: the checks that run before a build are slow
+# enough to type into.
+BUSY_STATUSES = frozenset({"starting", "running", "awaiting_feedback"})
 
 BUSY_MESSAGE = (
     "Another build is running. Only one runs at a time on this hardware — "
@@ -284,7 +289,7 @@ class RunSession:
         that feeds the cost panel and activity log on the far side of a process boundary.
         """
         with self._lock:
-            if self.status not in {"running", "awaiting_feedback"} or self.cancelled:
+            if self.status not in BUSY_STATUSES or self.cancelled:
                 return
             self.cancelled = True
             flow = self.flow
@@ -335,9 +340,45 @@ class RunSession:
         flow._log_probe = self.log.render
         flow._cancel_probe = lambda: self.cancelled
 
-    def start(self, requirements: str, process: str = "") -> None:
-        """Kick off a build. Does nothing if this session already has one running."""
+    def mark_starting(self) -> None:
+        """Say the click landed, before the work that makes it look like it didn't.
+
+        Two slow things happen between pressing Build it and a run existing: triage is
+        an LLM call, and preflight talks to the sandbox backend. That is up to twenty
+        seconds in which the page said "Idle", the Build button stayed live and no trace
+        appeared — indistinguishable from a click that was dropped, so people pressed it
+        again. This is a status rather than a one-off UI frame because the page polls
+        every two seconds: a frame would be painted over by the next tick reading "idle"
+        off this session, which is what it truthfully said.
+        """
+        if self.status in BUSY_STATUSES:
+            return
+        # `cancelled` is cleared here as well as in start(), because this is now the
+        # first moment of an attempt and cancel() is reachable from it.
+        self._set(
+            status="starting", notice="", error="", showing_demo=False, cancelled=False
+        )
+
+    def clear_starting(self) -> None:
+        """Undo :meth:`mark_starting` when the checks refuse the build."""
+        if self.status == "starting":
+            self._set(status="idle")
+
+    def start(
+        self, requirements: str, process: str = "", *, expect: Status | None = None
+    ) -> None:
+        """Kick off a build. Does nothing if this session already has one running.
+
+        ``expect`` is the status the caller left the session in before doing the slow
+        pre-build checks. If it has moved since, something happened during those checks —
+        in practice the visitor closing the page — and starting now would spend a full
+        build on nobody. It is passed rather than inferred because "cancelled" on its own
+        cannot distinguish that from a cancelled run earlier in the same tab, and reading
+        it as the latter is the bug this whole area already had once.
+        """
         if self.is_busy:
+            return
+        if expect is not None and self.status != expect:
             return
 
         allowed, reason = budget.check_can_start()
